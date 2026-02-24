@@ -18,7 +18,7 @@ interface FormatPart {
 }
 
 class WordFormatter {
-  private static parseMarkdown(text: string): FormatPart[] {
+  public static parseMarkdown(text: string): FormatPart[] {
     const parts: FormatPart[] = []
     const lines = text.split('\n')
     let inCodeBlock = false
@@ -135,7 +135,7 @@ class WordFormatter {
     return parts
   }
 
-  private static parseInlineFormatting(text: string): FormatPart[] {
+  public static parseInlineFormatting(text: string): FormatPart[] {
     const parts: FormatPart[] = []
 
     const regex = /(\*\*\*(.+?)\*\*\*|\*\*(.+?)\*\*|\*(.+?)\*|(.+?)(?=\*\*\*|\*\*|\*|$))/g

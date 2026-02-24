@@ -31,14 +31,41 @@ const fetchWebContentTool = new DynamicStructuredTool({
 
       const html = await response.text()
 
+      // Use Readability for high-fidelity extraction
+      try {
+        const parser = new DOMParser()
+        const doc = parser.parseFromString(html, 'text/html')
+
+        // Dynamic import to avoid issues if not fully loaded
+        const { Readability } = await import('@mozilla/readability')
+        const reader = new Readability(doc)
+        const article = reader.parse()
+
+        if (article && article.textContent) {
+          const content =
+            article.textContent.length > 10000 ? article.textContent.substring(0, 10000) + '...' : article.textContent
+          return `Title: ${article.title}\nSource: ${url}\n\n${content}`
+        }
+      } catch (readabilityError) {
+        console.warn('Readability failed, falling back to regex:', readabilityError)
+      }
+
+      // Simple but better HTML to Text conversion (Fallback)
       const textContent = html
-        .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-        .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
-        .replace(/<[^>]+>/g, ' ')
-        .replace(/\s+/g, ' ')
+        .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '') // Remove scripts
+        .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '') // Remove styles
+        .replace(/<head\b[^<]*(?:(?!<\/head>)<[^<]*)*<\/head>/gi, '') // Remove head
+        .replace(/<h[1-6][^>]*>/gi, '\n\n# ') // Format headings
+        .replace(/<\/h[1-6]>/gi, '\n\n')
+        .replace(/<p[^>]*>/gi, '\n\n') // Format paragraphs
+        .replace(/<br\s*\/?>/gi, '\n') // Line breaks
+        .replace(/<li[^>]*>/gi, '\n* ') // List items
+        .replace(/<[^>]+>/g, ' ') // Strip other tags
+        .replace(/[ \t]+/g, ' ') // Collapse horizontal whitespace
+        .replace(/\n\s*\n\s*\n+/g, '\n\n') // Collapse multiple blank lines
         .trim()
 
-      const maxLength = 5000
+      const maxLength = 8000
       const content = textContent.length > maxLength ? textContent.substring(0, maxLength) + '...' : textContent
 
       return `Content from ${url}:\n\n${content}`

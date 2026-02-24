@@ -74,6 +74,12 @@ export const Setting_Names = [
   'systemPrompt',
   'userPrompt',
   'agentMaxIterations',
+  'erpnextUrl',
+  'erpnextApiKey',
+  'erpnextApiSecret',
+  'googleClientId',
+  'googleApiKey',
+  'consultantBackendUrl',
 ] as const
 
 export type SettingNames = (typeof Setting_Names)[number]
@@ -134,7 +140,7 @@ export const settingPreset = {
     type: 'select',
     optionObj: optionLists.localLanguageList,
     saveFunc: (value: string) => {
-      i18n.global.locale.value = value as 'en' | 'zh-cn'
+      i18n.global.locale.value = value as 'en' | 'zh-cn' | 'fr'
       localStorage.setItem(localStorageKey.localLanguage, value)
     },
   },
@@ -176,4 +182,10 @@ export const settingPreset = {
   systemPrompt: inputSetting('', 'defaultSystemPrompt'),
   userPrompt: inputSetting('', 'defaultPrompt'),
   agentMaxIterations: inputNumSetting(25, 'agentMaxIterations', 'maxTokens'),
+  erpnextUrl: inputSetting('', 'erpnextUrl'),
+  erpnextApiKey: inputSetting('', 'erpnextApiKey'),
+  erpnextApiSecret: inputSetting('', 'erpnextApiSecret'),
+  googleClientId: inputSetting('', 'googleClientId'),
+  googleApiKey: inputSetting('', 'googleApiKey'),
+  consultantBackendUrl: inputSetting('http://localhost:8000', 'consultantBackendUrl'),
 } as const satisfies Record<SettingNames, ISettingOption<any>>

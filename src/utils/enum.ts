@@ -48,4 +48,11 @@ export const localStorageKey = {
   proxy: 'proxy',
   defaultSystemPrompt: 'defaultSystemPrompt',
   defaultPrompt: 'defaultPrompt',
+  // erpnext integration
+  erpnextUrl: 'erpnextUrl',
+  erpnextApiKey: 'erpnextApiKey',
+  erpnextApiSecret: 'erpnextApiSecret',
+  googleClientId: 'googleClientId',
+  googleApiKey: 'googleApiKey',
+  consultantBackendUrl: 'consultantBackendUrl',
 } as const

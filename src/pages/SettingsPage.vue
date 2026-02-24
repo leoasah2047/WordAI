@@ -88,7 +88,7 @@
               <div style="width: 100%">
                 <select v-model="settingForm.api" class="select-input">
                   <option v-for="item in settingPreset.api.optionObj" :key="item.value" :value="item.value">
-                    {{ item.label.replace('official', 'OpenAI') }}
+                    {{ item.label.replace('official', 'Gemini') }}
                   </option>
                 </select>
               </div>
@@ -103,9 +103,21 @@
             class="api-config-section"
           >
             <h3 class="subsection-title">
-              {{ platform.replace('official', 'OpenAI') }}
+              {{ platform.replace('official', 'Gemini') }}
               {{ $t('configuration') }}
             </h3>
+
+            <div class="setting-card security-note">
+              <div class="security-info">
+                <component :is="CheckCircle" :size="14" class="security-icon" />
+                <p class="security-text">
+                  {{
+                    $t('securityNote') ||
+                    "Security Note: API keys are stored in your browser's local storage for persistence. Avoid using public or shared computers."
+                  }}
+                </p>
+              </div>
+            </div>
 
             <div class="setting-card">
               <!-- Input Settings -->
@@ -389,14 +401,193 @@
             </div>
           </div>
         </div>
+
+        <!-- Translation Modes Settings -->
+        <div v-show="currentTab === 'translation'" class="settings-section">
+          <div class="prompts-list">
+            <div class="list-header">
+              <h3 class="list-title">{{ $t('customTranslationModes') || 'Translation Modes' }}</h3>
+              <button class="add-button" @click="addNewTranslationMode">
+                <component :is="Plus" :size="16" />
+                <span>{{ $t('addMode') || 'Add Mode' }}</span>
+              </button>
+            </div>
+
+            <div v-for="mode in translationModes" :key="mode.id" class="prompt-item">
+              <div class="prompt-header">
+                <div class="prompt-title-row">
+                  <input
+                    v-if="editingTranslationModeId === mode.id"
+                    v-model="editingTranslationMode.name"
+                    class="prompt-name-input"
+                  />
+                  <span v-else class="prompt-name">{{ mode.name }}</span>
+                </div>
+                <div class="prompt-actions">
+                  <button class="icon-button" @click="startEditTranslationMode(mode)">
+                    <component :is="Edit2" :size="14" />
+                  </button>
+                  <button class="icon-button delete" @click="deleteTranslationMode(mode.id)">
+                    <component :is="Trash2" :size="14" />
+                  </button>
+                </div>
+              </div>
+
+              <div v-if="editingTranslationModeId === mode.id" class="prompt-editor">
+                <label class="editor-label">{{ $t('prompt') }}</label>
+                <textarea
+                  v-model="editingTranslationMode.prompt"
+                  class="textarea-input"
+                  rows="3"
+                  :placeholder="$t('translationModePlaceholder')"
+                />
+                <div class="editor-actions">
+                  <button class="save-button" @click="saveTranslationModeEdit">
+                    {{ $t('save') }}
+                  </button>
+                  <button class="cancel-button" @click="editingTranslationModeId = ''">
+                    {{ $t('cancel') }}
+                  </button>
+                </div>
+              </div>
+              <div v-else class="prompt-preview">
+                <p class="preview-text">{{ mode.prompt }}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ERPNext Integration Settings -->
+        <div v-show="currentTab === 'erpnext'" class="settings-section">
+          <div class="setting-card">
+            <h3 class="subsection-title">
+              {{ $t('erpnextIntegration') || 'ERPNext Integration' }}
+            </h3>
+            <p class="section-description">
+              {{
+                $t('erpnextDescription') || 'Connect to ERPNext to access files from your Document Management System.'
+              }}
+            </p>
+
+            <div class="setting-item">
+              <div class="setting-info">
+                <label class="setting-label">{{ $t('erpnextUrl') || 'ERPNext URL' }}</label>
+              </div>
+              <div class="setting-control full-width">
+                <input
+                  v-model="settingForm.erpnextUrl"
+                  class="text-input"
+                  type="text"
+                  placeholder="https://your-instance.erpnext.com"
+                />
+              </div>
+            </div>
+
+            <div class="setting-divider" />
+
+            <div class="setting-item">
+              <div class="setting-info">
+                <label class="setting-label">{{ $t('erpnextApiKey') || 'API Key' }}</label>
+              </div>
+              <div class="setting-control full-width">
+                <input v-model="settingForm.erpnextApiKey" class="text-input" type="text" placeholder="API Key" />
+              </div>
+            </div>
+
+            <div class="setting-divider" />
+
+            <div class="setting-item">
+              <div class="setting-info">
+                <label class="setting-label">{{ $t('erpnextApiSecret') || 'API Secret' }}</label>
+              </div>
+              <div class="setting-control full-width">
+                <input
+                  v-model="settingForm.erpnextApiSecret"
+                  class="text-input"
+                  type="password"
+                  placeholder="API Secret"
+                />
+              </div>
+            </div>
+
+            <div class="setting-divider" />
+
+            <div class="setting-item">
+              <div class="setting-info">
+                <label class="setting-label">{{ $t('consultantBackendUrl') || 'Consultant Backend URL' }}</label>
+              </div>
+              <div class="setting-control full-width">
+                <input
+                  v-model="settingForm.consultantBackendUrl"
+                  class="text-input"
+                  type="text"
+                  placeholder="http://localhost:8000"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Google Drive Integration Settings -->
+        <div v-show="currentTab === 'googledrive'" class="settings-section">
+          <div class="setting-card">
+            <h3 class="subsection-title">
+              {{ $t('googleDriveIntegration') || 'Google Drive Integration' }}
+            </h3>
+            <p class="section-description">
+              {{ $t('googleDriveDescription') || 'Connect to Google Drive to access your files and folders.' }}
+            </p>
+
+            <div class="setting-item">
+              <div class="setting-info">
+                <label class="setting-label">{{ $t('googleClientId') || 'Client ID' }}</label>
+              </div>
+              <div class="setting-control full-width">
+                <input
+                  v-model="settingForm.googleClientId"
+                  class="text-input"
+                  type="text"
+                  placeholder="your-client-id.apps.googleusercontent.com"
+                />
+              </div>
+            </div>
+
+            <div class="setting-divider" />
+
+            <div class="setting-item">
+              <div class="setting-info">
+                <label class="setting-label">{{ $t('googleApiKey') || 'API Key' }}</label>
+              </div>
+              <div class="setting-control full-width">
+                <input v-model="settingForm.googleApiKey" class="text-input" type="text" placeholder="API Key" />
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
 </template>
 
 <script lang="ts" setup>
-import { ArrowLeft, Cpu, Edit2, Globe, MessageSquare, Plus, Settings, Trash2, Wrench, X } from 'lucide-vue-next'
+import {
+  ArrowLeft,
+  CheckCircle,
+  Cpu,
+  Database,
+  Edit2,
+  Globe,
+  HardDrive,
+  Languages,
+  MessageSquare,
+  Plus,
+  Settings,
+  Trash2,
+  Wrench,
+  X,
+} from 'lucide-vue-next'
 import { onBeforeMount, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 
 import { getLabel, getPlaceholder } from '@/utils/common'
@@ -406,6 +597,7 @@ import useSettingForm from '@/utils/settingForm'
 import { Setting_Names, SettingNames, settingPreset } from '@/utils/settingPreset'
 import { getWordToolDefinitions } from '@/utils/wordTools'
 
+const { t } = useI18n()
 const router = useRouter()
 const settingForm = useSettingForm()
 
@@ -433,6 +625,16 @@ const editingPrompt = ref<Prompt>({
   systemPrompt: '',
   userPrompt: '',
 })
+
+// Translation Modes
+interface TranslationMode {
+  id: string
+  name: string
+  prompt: string
+}
+const translationModes = ref<TranslationMode[]>([])
+const editingTranslationModeId = ref('')
+const editingTranslationMode = ref<TranslationMode>({ id: '', name: '', prompt: '' })
 
 // Built-in prompts management
 interface BuiltinPromptConfig {
@@ -486,10 +688,28 @@ const tabs = [
     icon: Settings,
   },
   {
+    id: 'translation',
+    label: 'translation',
+    defaultLabel: 'Translation',
+    icon: Languages,
+  },
+  {
     id: 'tools',
     label: 'tools',
     defaultLabel: 'Tools',
     icon: Wrench,
+  },
+  {
+    id: 'erpnext',
+    label: 'erpnextIntegration',
+    defaultLabel: 'ERPNext',
+    icon: Database,
+  },
+  {
+    id: 'googledrive',
+    label: 'googleDriveIntegration',
+    defaultLabel: 'Google Drive',
+    icon: HardDrive,
   },
 ]
 
@@ -605,7 +825,7 @@ const loadPrompts = () => {
   savedPrompts.value = [
     {
       id: 'default',
-      name: 'Default',
+      name: t('default') || 'Default',
       systemPrompt: settingForm.value.systemPrompt || '',
       userPrompt: settingForm.value.userPrompt || '',
     },
@@ -620,7 +840,7 @@ const savePromptsToStorage = () => {
 const addNewPrompt = () => {
   const newPrompt: Prompt = {
     id: `prompt_${Date.now()}`,
-    name: `Prompt ${savedPrompts.value.length + 1}`,
+    name: `${t('prompt')} ${savedPrompts.value.length + 1}`,
     systemPrompt: '',
     userPrompt: '',
   }
@@ -797,11 +1017,66 @@ const isGeneralTool = (toolName: string): boolean => {
   return generalToolNames.includes(toolName as any)
 }
 
+// Translation Mode Logic
+const loadTranslationModes = () => {
+  const stored = localStorage.getItem('customTranslationModes')
+  if (stored) {
+    try {
+      translationModes.value = JSON.parse(stored)
+      return
+    } catch (_e) {}
+  }
+  translationModes.value = [
+    {
+      id: 'en_legal',
+      name: 'Legal English',
+      prompt: 'Translate to English using standard legal and contract terminology.',
+    },
+    { id: 'jp_polite', name: 'Polite Japanese', prompt: 'Translate to Japanese using formal (Desu/Masu) honorifics.' },
+  ]
+  saveTranslationModes()
+}
+
+const saveTranslationModes = () => {
+  localStorage.setItem('customTranslationModes', JSON.stringify(translationModes.value))
+}
+
+const addNewTranslationMode = () => {
+  const newMode: TranslationMode = {
+    id: `tm_${Date.now()}`,
+    name: `New Translation Mode`,
+    prompt: '',
+  }
+  translationModes.value.push(newMode)
+  saveTranslationModes()
+  startEditTranslationMode(newMode)
+}
+
+const startEditTranslationMode = (mode: TranslationMode) => {
+  editingTranslationModeId.value = mode.id
+  editingTranslationMode.value = { ...mode }
+}
+
+const saveTranslationModeEdit = () => {
+  const idx = translationModes.value.findIndex(m => m.id === editingTranslationModeId.value)
+  if (idx !== -1) {
+    translationModes.value[idx] = { ...editingTranslationMode.value }
+    saveTranslationModes()
+  }
+  editingTranslationModeId.value = ''
+}
+
+const deleteTranslationMode = (id: string) => {
+  translationModes.value = translationModes.value.filter(m => m.id !== id)
+  saveTranslationModes()
+}
+
 onBeforeMount(() => {
-  loadPrompts()
   loadCustomModels()
+  loadPrompts()
   loadBuiltInPrompts()
   loadToolPreferences()
+  loadTranslationModes()
   addWatch()
 })
 

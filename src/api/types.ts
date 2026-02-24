@@ -3,13 +3,14 @@ import { Ref } from 'vue'
 
 export interface BaseChatCompletionOptions {
   messages: Messages
-  result: Ref<string>
+  result?: Ref<string>
   errorIssue: Ref<boolean | string | null> // extends string for specific issues
   loading: Ref<boolean>
   maxTokens?: number
   temperature?: number
   abortSignal?: AbortSignal
-  threadId: string
+  threadId?: string
+  nexusProfile?: any
   onStream: (text: string) => void
 }
 
@@ -76,4 +77,12 @@ export interface AgentOptions extends BaseChatCompletionOptions {
   azureAPIEndpoint?: string
   azureDeploymentName?: string
   azureAPIVersion?: string
+}
+
+export interface QueryResponse {
+  response: string
+  context: {
+    content: string
+    metadata: any
+  }[]
 }

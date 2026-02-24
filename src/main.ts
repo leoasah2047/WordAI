@@ -1,4 +1,5 @@
 import 'element-plus/dist/index.css'
+import './styles/variables.css'
 
 import ElementUI from 'element-plus'
 import { createApp } from 'vue'
@@ -6,6 +7,7 @@ import { createApp } from 'vue'
 import App from './App.vue'
 import { i18n } from './i18n'
 import router from './router'
+import { setupGlobalErrorHandler } from './utils/errorHandling'
 
 window.Office.onReady(() => {
   const app = createApp(App)
@@ -31,5 +33,9 @@ window.Office.onReady(() => {
   app.use(i18n)
   app.use(router)
   app.use(ElementUI)
+
+  // Global Error Handler
+  setupGlobalErrorHandler(app)
+
   app.mount('#app')
 })

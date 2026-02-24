@@ -33,8 +33,10 @@ function initializeSettings(): Record<string, SettingValue> {
   return settings
 }
 
+const globalSettingForm = ref(initializeSettings()) as Ref<SettingForm>
+
 function useSettingForm() {
-  return ref(initializeSettings()) as Ref<SettingForm>
+  return globalSettingForm
 }
 
 export default useSettingForm

@@ -1,201 +1,218 @@
 <template>
-  <div class="copilot-chat">
-    <!-- Header -->
-    <div class="chat-header">
-      <div class="header-left">
-        <Sparkles :size="18" />
-        <span class="app-title">Word GPT+</span>
+  <div class="copilot-chat" :class="{ 'zero-state': history.length === 0 }">
+    <!-- History Sidebar -->
+    <div class="chat-history-sidebar" :class="{ open: showHistory }">
+      <div class="history-header">
+        <h3>{{ $t('chatHistory') }}</h3>
+        <button class="close-btn" @click="showHistory = false">
+          <X :size="16" />
+        </button>
       </div>
-      <div class="header-right">
-        <button class="new-chat-btn" :title="$t('newChat')" @click="startNewChat">
-          <Plus :size="18" />
-        </button>
-        <button class="settings-icon-btn" :title="$t('settings')" @click="settings">
-          <Settings :size="18" />
-        </button>
+      <div class="history-list">
+        <div
+          v-for="chat in chatHistory"
+          :key="chat.id"
+          class="history-item"
+          :class="{ active: currentChatId === chat.id }"
+          @click="loadChat(chat)"
+        >
+          <div class="history-info">
+            <span class="history-title">{{ chat.title }}</span>
+            <span class="history-date">{{ formatDate(chat.timestamp) }}</span>
+          </div>
+          <button class="delete-btn" @click.stop="deleteChat(chat.id)">
+            <Trash2 :size="14" />
+          </button>
+        </div>
       </div>
     </div>
 
-    <!-- Quick Actions Bar -->
-    <div class="quick-actions">
-      <button
-        v-for="action in quickActions"
-        :key="action.key"
-        class="quick-action-btn"
-        :title="action.label"
-        :disabled="loading"
-        @click="applyQuickAction(action.key)"
-      >
-        <component :is="action.icon" :size="16" />
-      </button>
-      <select v-model="selectedPromptId" class="prompt-selector" :disabled="loading" @change="loadSelectedPrompt">
-        <option value="">{{ $t('selectPrompt') }}</option>
-        <option v-for="prompt in savedPrompts" :key="prompt.id" :value="prompt.id">
-          {{ prompt.name }}
-        </option>
-      </select>
+    <!-- Header (only visible when not in zero state or pushed to top) -->
+    <div class="chat-header">
+      <div class="chat-title">
+        <MessageSquare :size="18" />
+        <span>Word AI</span>
+      </div>
+      <div class="header-actions">
+        <!-- Agent Mode Undo/Redo Controls -->
+        <template v-if="mode === 'agent'">
+          <button
+            class="header-btn"
+            :disabled="!canUndo"
+            :title="$t('undo') + ' (Ctrl+Z)'"
+            :aria-label="$t('undo')"
+            @click="undoAction"
+          >
+            <Undo :size="16" />
+          </button>
+          <button
+            class="header-btn"
+            :disabled="!canRedo"
+            :title="$t('redo') + ' (Ctrl+Y)'"
+            :aria-label="$t('redo')"
+            @click="redoAction"
+          >
+            <Redo :size="16" />
+          </button>
+        </template>
+
+        <button
+          class="header-btn"
+          :class="{ active: showHistory }"
+          :title="$t('chatHistory')"
+          :aria-label="$t('chatHistory')"
+          @click="showHistory = !showHistory"
+        >
+          <History :size="16" />
+        </button>
+        <button
+          v-if="history.length > 0"
+          class="header-btn"
+          :title="$t('exportHistory')"
+          :aria-label="$t('exportHistory')"
+          @click="exportHistoryToDocument"
+        >
+          <Download :size="16" />
+        </button>
+        <button class="header-btn" :title="$t('startNewChat')" :aria-label="$t('startNewChat')" @click="startNewChat">
+          <Plus :size="16" />
+        </button>
+
+        <div class="header-divider"></div>
+
+        <button
+          class="header-btn"
+          :class="{ active: isVisible }"
+          title="Agent Activity Feed"
+          aria-label="Agent Activity Feed"
+          @click="toggleVisibility"
+        >
+          <Activity :size="16" />
+        </button>
+      </div>
     </div>
 
     <!-- Chat Messages Container -->
-    <div ref="messagesContainer" class="chat-messages">
-      <div v-if="history.length === 0" class="empty-state">
-        <Sparkles :size="32" />
-        <p class="empty-title">
-          {{ $t('emptyTitle') }}
-        </p>
-        <p class="empty-subtitle">
-          {{ $t('emptySubtitle') }}
-        </p>
-      </div>
+    <ChatMessages
+      :messages="displayHistory"
+      :loading="loading"
+      @insert="insertToDocument"
+      @execute-action="executeAction"
+    />
 
-      <div
-        v-for="(msg, index) in displayHistory"
-        :key="msg.id || index"
-        class="message"
-        :class="msg instanceof AIMessage ? 'assistant' : 'user'"
+    <!-- Center Content for Zero State -->
+    <ZeroState
+      v-if="history.length === 0"
+      v-model:user-input="userInput"
+      :mode="mode"
+      :quick-actions="quickActions"
+      @apply-action="applyQuickAction"
+    />
+
+    <!-- Input Area (Centered in Zero State, Fixed Bottom otherwise) -->
+    <div class="chat-input-container" :class="{ 'centered-input': history.length === 0 }">
+      <ChatInput
+        v-model="userInput"
+        :loading="loading"
+        :selection-has-potential="selectionHasPotential"
+        @send="sendMessage"
+        @stop="stopGeneration"
+        @analyze-selection="analyzeSelectionForImprovement"
+        @file-extracted="handleFileExtracted"
       >
-        <div class="message-content">
-          <div class="message-text">
-            <template v-for="(segment, idx) in renderSegments(msg)" :key="idx">
-              <span v-if="segment.type === 'text'">{{ segment.text.trim() }}</span>
-              <details v-else class="think-block">
-                <summary>Thought process</summary>
-                <pre>{{ segment.text.trim() }}</pre>
-              </details>
-            </template>
+        <template #left-actions>
+          <ModeSelector :initial-mode="mode" @update:mode="handleModeChange" />
+        </template>
+        <template #footer>
+          <div class="model-controls">
+            <select v-model="settingForm.api" class="compact-select">
+              <option v-for="item in settingPreset.api.optionObj" :key="item.value" :value="item.value">
+                {{ item.label.replace('official', 'OpenAI') }}
+              </option>
+            </select>
           </div>
-          <div v-if="msg instanceof AIMessage" class="message-actions">
-            <button
-              class="action-icon"
-              :title="$t('replaceSelectedText')"
-              @click="insertToDocument(cleanMessageText(msg), 'replace')"
-            >
-              <FileText :size="12" />
-            </button>
-            <button
-              class="action-icon"
-              :title="$t('appendToSelection')"
-              @click="insertToDocument(cleanMessageText(msg), 'append')"
-            >
-              <Plus :size="12" />
-            </button>
-            <button class="action-icon" :title="$t('copyToClipboard')" @click="copyToClipboard(cleanMessageText(msg))">
-              <Copy :size="12" />
-            </button>
-          </div>
-        </div>
-      </div>
+          <label class="checkbox-small">
+            <input v-model="useWordFormatting" type="checkbox" />
+            <span>{{ $t('useWordFormattingLabel') }}</span>
+          </label>
+          <label class="checkbox-small">
+            <input v-model="useSelectedText" type="checkbox" />
+            <span>{{ $t('includeSelectionLabel') }}</span>
+          </label>
+        </template>
+      </ChatInput>
     </div>
 
-    <!-- Input Area -->
-    <div class="chat-input-container">
-      <div class="input-controls">
-        <div class="mode-selector">
-          <button class="mode-btn" :class="{ active: mode === 'ask' }" title="Ask Mode" @click="mode = 'ask'">
-            <MessageSquare :size="14" />
-          </button>
-          <button class="mode-btn" :class="{ active: mode === 'agent' }" title="Agent Mode" @click="mode = 'agent'">
-            <BotMessageSquare :size="17" />
-          </button>
-        </div>
-        <div class="model-controls">
-          <select v-model="settingForm.api" class="compact-select">
-            <option v-for="item in settingPreset.api.optionObj" :key="item.value" :value="item.value">
-              {{ item.label.replace('official', 'OpenAI') }}
-            </option>
-          </select>
-          <select
-            v-model="currentModelSelect"
-            class="compact-select"
-            :disabled="!currentModelOptions || currentModelOptions.length === 0"
-          >
-            <option v-for="item in currentModelOptions" :key="item" :value="item">
-              {{ item }}
-            </option>
-          </select>
-        </div>
-      </div>
-      <div class="input-wrapper">
-        <textarea
-          ref="inputTextarea"
-          v-model="userInput"
-          class="chat-input"
-          :placeholder="mode === 'ask' ? $t('askAnything') : $t('directTheAgent')"
-          rows="1"
-          @keydown.enter.exact.prevent="sendMessage"
-          @input="adjustTextareaHeight"
-        />
-        <button v-if="loading" class="stop-btn" title="Stop" @click="stopGeneration">
-          <Square :size="18" />
-        </button>
-        <button v-else class="send-btn" title="Send" :disabled="!userInput.trim()" @click="sendMessage">
-          <Send :size="18" />
-        </button>
-      </div>
-      <div class="input-footer">
-        <label class="checkbox-small">
-          <input v-model="useWordFormatting" type="checkbox" />
-          <span>{{ $t('useWordFormattingLabel') }}</span>
-        </label>
-        <label class="checkbox-small">
-          <input v-model="useSelectedText" type="checkbox" />
-          <span>{{ $t('includeSelectionLabel') }}</span>
-        </label>
-      </div>
-    </div>
+    <ConfirmationDialog
+      :visible="confirmVisible"
+      :title="confirmTitle"
+      :message="confirmMessage"
+      @confirm="handleConfirmDialog"
+      @cancel="handleCancelDialog"
+    />
+
+    <!-- Agent Activity Feed Sidebar -->
+    <AgentActivityFeed />
+
+    <!-- Selection Floating Menu -->
+    <SelectionFloatingMenu
+      :visible="selectionMenuVisible"
+      :x="selectionMenuPosition.x"
+      :y="selectionMenuPosition.y"
+      @action="handleFloatingMenuAction"
+    />
   </div>
 </template>
 
 <script lang="ts" setup>
-import { AIMessage, HumanMessage, Message, SystemMessage } from '@langchain/core/messages'
+import { AIMessage, HumanMessage, SystemMessage } from '@langchain/core/messages'
 import { useStorage } from '@vueuse/core'
 import {
+  Activity,
   BookOpen,
-  BotMessageSquare,
   CheckCircle,
-  Copy,
+  Download,
   FileCheck,
-  FileText,
   Globe,
+  History,
   MessageSquare,
   Plus,
-  Send,
-  Settings,
+  Redo,
   Sparkle,
-  Sparkles,
-  Square,
+  Trash2,
+  Undo,
+  X,
 } from 'lucide-vue-next'
 import { v4 as uuidv4 } from 'uuid'
-import { computed, nextTick, onBeforeMount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeMount, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRouter } from 'vue-router'
 
-import { insertFormattedResult, insertResult } from '@/api/common'
-import { getAgentResponse, getChatResponse } from '@/api/union'
-import { checkAuth } from '@/utils/common'
-import { buildInPrompt, getBuiltInPrompt } from '@/utils/constant'
-import { localStorageKey } from '@/utils/enum'
-import { createGeneralTools, GeneralToolName } from '@/utils/generalTools'
-import { message as messageUtil } from '@/utils/message'
-import useSettingForm from '@/utils/settingForm'
-import { settingPreset } from '@/utils/settingPreset'
-import { createWordTools, WordToolName } from '@/utils/wordTools'
-
-const router = useRouter()
 const { t } = useI18n()
 
+import { insertFormattedResult, insertResult } from '@/api/common'
+import AgentActivityFeed from '@/components/AgentActivityFeed.vue'
+import ChatInput from '@/components/ChatInput.vue'
+import ChatMessages from '@/components/ChatMessages.vue'
+import ConfirmationDialog from '@/components/ConfirmationDialog.vue'
+import ModeSelector from '@/components/ModeSelector.vue'
+import SelectionFloatingMenu from '@/components/SelectionFloatingMenu.vue'
+import ZeroState from '@/components/ZeroState.vue'
+import { useAgentActivity } from '@/composables/useAgentActivity'
+import { useChatHistory } from '@/composables/useChatHistory'
+import { SYSTEM_PROMPTS } from '@/constants/prompts'
+import { useAuthStore } from '@/stores/AuthStore'
+import { getAgentHistoryManager } from '@/utils/agentHistory'
+import { checkAuth, formatDate } from '@/utils/common'
+import { buildInPrompt, getBuiltInPrompt } from '@/utils/constant'
+import { localStorageKey } from '@/utils/enum'
+import { type GeneralToolName } from '@/utils/generalTools'
+import { message as messageUtil } from '@/utils/message'
+import { cleanMessageText } from '@/utils/messageParsing'
+import useSettingForm from '@/utils/settingForm'
+import { settingPreset } from '@/utils/settingPreset'
+import { type WordToolName } from '@/utils/wordTools'
+
 const settingForm = useSettingForm()
-
-interface SavedPrompt {
-  id: string
-  name: string
-  systemPrompt: string
-  userPrompt: string
-}
-
-const savedPrompts = ref<SavedPrompt[]>([])
-const selectedPromptId = ref<string>('')
-const customSystemPrompt = ref<string>('')
 
 const allWordToolNames: WordToolName[] = [
   'getSelectedText',
@@ -221,6 +238,11 @@ const allWordToolNames: WordToolName[] = [
   'goToBookmark',
   'insertContentControl',
   'findText',
+  'bulkFindReplace',
+  'applyStyle',
+  'createSection',
+  'formatTable',
+  'getDocumentStructure',
 ]
 
 const allGeneralToolNames: GeneralToolName[] = ['fetchWebContent', 'searchWeb', 'getCurrentDate', 'calculateMath']
@@ -255,58 +277,167 @@ function loadEnabledGeneralTools(): GeneralToolName[] {
   return [...allGeneralToolNames]
 }
 
-function getActiveTools() {
-  const wordTools = createWordTools(enabledWordTools.value)
+// Confirmation Dialog State
+const confirmVisible = ref(false)
+const confirmTitle = ref('')
+const confirmMessage = ref('')
+const confirmCurrentTool = ref('')
+const confirmResolve = ref<((value: boolean) => void) | null>(null)
+const dontAskAgainMap = useStorage<Record<string, boolean>>('confirmationDontAskAgain', {})
+
+function handleConfirmDialog(dontAsk: boolean) {
+  if (dontAsk && confirmCurrentTool.value) {
+    dontAskAgainMap.value[confirmCurrentTool.value] = true
+  }
+  if (confirmResolve.value) {
+    confirmResolve.value(true)
+    confirmResolve.value = null
+  }
+}
+
+function handleCancelDialog() {
+  if (confirmResolve.value) {
+    confirmResolve.value(false)
+    confirmResolve.value = null
+  }
+}
+
+const handleToolConfirmation = async (toolName: string, _args: any): Promise<boolean> => {
+  // Destructive tools requiring confirmation
+  const destructiveTools = [
+    'deleteText',
+    'replaceSelectedText',
+    'clearFormatting',
+    'searchAndReplace',
+    'bulkFindReplace',
+    'applyStyle',
+    'createSection',
+    'formatTable',
+  ]
+
+  if (!destructiveTools.includes(toolName)) return true
+  if (dontAskAgainMap.value[toolName]) return true
+
+  return new Promise(resolve => {
+    confirmCurrentTool.value = toolName
+    confirmTitle.value = t('confirmAction') || 'Confirm Action'
+    confirmMessage.value = t('confirmToolExecution', { tool: toolName }) || `Allow agent to execute ${toolName}?`
+    confirmVisible.value = true
+    confirmResolve.value = resolve
+  })
+}
+
+async function getActiveTools() {
+  const { createWordTools } = await import('@/utils/wordTools')
+  const { createGeneralTools } = await import('@/utils/generalTools')
+
+  const wordTools = createWordTools({
+    enabledTools: enabledWordTools.value,
+    onPreExecute: handleToolConfirmation,
+  })
   const generalTools = createGeneralTools(enabledGeneralTools.value)
+
+  if (mode.value === 'designer') {
+    const { createDesignerTools } = await import('@/utils/designerTools')
+    const designerTools = createDesignerTools()
+    return [...generalTools, ...wordTools, ...designerTools]
+  }
+
   return [...generalTools, ...wordTools]
 }
 
-function loadSavedPrompts() {
-  const stored = localStorage.getItem('savedPrompts')
-  if (stored) {
-    try {
-      savedPrompts.value = JSON.parse(stored)
-    } catch (error) {
-      console.error('Error loading saved prompts:', error)
-      savedPrompts.value = []
-    }
-  }
-}
-
-function loadSelectedPrompt() {
-  if (!selectedPromptId.value) {
-    customSystemPrompt.value = ''
-    return
-  }
-
-  const prompt = savedPrompts.value.find(p => p.id === selectedPromptId.value)
-  if (prompt) {
-    customSystemPrompt.value = prompt.systemPrompt
-    userInput.value = prompt.userPrompt
-    adjustTextareaHeight()
-
-    if (inputTextarea.value) {
-      inputTextarea.value.focus()
-    }
-  }
-}
-
 // Chat state
-const mode = useStorage(localStorageKey.chatMode, 'ask' as 'ask' | 'agent')
-const history = ref<Message[]>([])
+const mode = useStorage(localStorageKey.chatMode, 'chat')
+const {
+  history,
+  chatHistory,
+  currentChatId,
+  threadId,
+  showHistory,
+  loadHistory,
+  startNewChat: _startNewChat,
+  loadChat,
+  deleteChat,
+  saveCurrentChat,
+} = useChatHistory()
+
 const userInput = ref('')
 const loading = ref(false)
 const messagesContainer = ref<HTMLElement>()
 const inputTextarea = ref<HTMLTextAreaElement>()
 const abortController = ref<AbortController | null>(null)
-const threadId = ref<string>(uuidv4())
+
+function startNewChat() {
+  if (loading.value) {
+    stopGeneration()
+  }
+  _startNewChat()
+  userInput.value = ''
+  customSystemPrompt.value = ''
+  selectedPromptId.value = ''
+}
+
+// Agent History State
+const agentHistoryManager = getAgentHistoryManager()
+const canUndo = ref(false)
+const canRedo = ref(false)
+
+// Predictive Assistance
+const selectionHasPotential = ref(false)
+const selectionMenuVisible = ref(false)
+const selectedTextContext = ref('')
+const selectionMenuPosition = ref<{ x?: number; y?: number }>({})
+const selectionTimer = ref<ReturnType<typeof setTimeout> | null>(null)
+
+// Monitor selection for "Zero-Latency" and "Predictive Spark"
+async function handleSelectionChange() {
+  try {
+    await Word.run(async context => {
+      const selection = context.document.getSelection()
+      selection.load('text')
+      await context.sync()
+
+      const hasSelection = selection.text.trim().length > 0
+      selectionHasPotential.value = hasSelection
+
+      if (hasSelection) {
+        if (!selectionMenuVisible.value && !selectionTimer.value) {
+          selectionTimer.value = setTimeout(() => {
+            // Because Word.js doesn't give pixel coords easily for context menus,
+            // we will use the fallback centered position by omitting x, y.
+            selectionMenuPosition.value = {}
+            selectionMenuVisible.value = true
+            selectionTimer.value = null
+          }, 1000)
+        }
+      } else {
+        if (selectionTimer.value) {
+          clearTimeout(selectionTimer.value)
+          selectionTimer.value = null
+        }
+        selectionMenuVisible.value = false
+      }
+    })
+  } catch (_e) {
+    // Fail silently to avoid interrupting the user's flow
+  }
+}
+
+async function analyzeSelectionForImprovement() {
+  userInput.value = 'Analyze the selected text for improvements in clarity, tone, and grammar.'
+  sendMessage()
+  selectionHasPotential.value = false
+}
+
+// Slash Command State
+const translationControlsRef = ref<any>(null)
 
 // Settings
 const useWordFormatting = useStorage(localStorageKey.useWordFormatting, true)
 const useSelectedText = useStorage(localStorageKey.useSelectedText, true)
 const insertType = ref<insertTypes>('replace')
 
-const errorIssue = ref<boolean | string | null>(false)
+// const errorIssue = ref<boolean | string | null>(false)
 
 const displayHistory = computed(() => {
   return history.value.filter(msg => !(msg instanceof SystemMessage))
@@ -325,110 +456,113 @@ const quickActions: {
   { key: 'grammar', label: t('grammar'), icon: CheckCircle },
 ]
 
-const getCustomModels = (key: string, oldKey: string): string[] => {
-  const stored = localStorage.getItem(key)
-  if (stored) {
-    try {
-      return JSON.parse(stored)
-    } catch {
-      return []
-    }
-  }
-  const oldModel = localStorage.getItem(oldKey)
-  if (oldModel && oldModel.trim()) {
-    return [oldModel]
-  }
-  return []
+function handleModeChange(newMode: string) {
+  mode.value = newMode
 }
 
-const currentModelOptions = computed(() => {
-  let presetOptions: string[] = []
-  let customModels: string[] = []
+// ===== AGENT HISTORY UNDO/REDO =====
 
-  switch (settingForm.value.api) {
-    case 'official':
-      presetOptions = settingPreset.officialModelSelect.optionList || []
-      customModels = getCustomModels('customModels', 'customModel')
-      break
-    case 'gemini':
-      presetOptions = settingPreset.geminiModelSelect.optionList || []
-      customModels = getCustomModels('geminiCustomModels', 'geminiCustomModel')
-      break
-    case 'ollama':
-      presetOptions = settingPreset.ollamaModelSelect.optionList || []
-      customModels = getCustomModels('ollamaCustomModels', 'ollamaCustomModel')
-      break
-    case 'groq':
-      presetOptions = settingPreset.groqModelSelect.optionList || []
-      customModels = getCustomModels('groqCustomModels', 'groqCustomModel')
-      break
-    case 'azure':
-      return []
-    default:
-      return []
+/**
+ * Undo the last agent action
+ */
+async function undoAction() {
+  if (!agentHistoryManager.canUndo()) {
+    return
   }
 
-  return [...presetOptions, ...customModels]
+  try {
+    const success = await agentHistoryManager.undo()
+    if (success) {
+      updateHistoryState()
+      messageUtil.success(t('undoSuccess') || 'Undo successful')
+    } else {
+      messageUtil.error(t('undoFailed') || 'Undo failed')
+    }
+  } catch (error) {
+    console.error('Undo error:', error)
+    messageUtil.error(t('undoFailed') || 'Undo failed')
+  }
+}
+
+/**
+ * Redo the last undone action
+ */
+async function redoAction() {
+  if (!agentHistoryManager.canRedo()) {
+    return
+  }
+
+  try {
+    const success = await agentHistoryManager.redo()
+    if (success) {
+      updateHistoryState()
+      messageUtil.success(t('redoSuccess') || 'Redo successful')
+    } else {
+      messageUtil.error(t('redoFailed') || 'Redo failed')
+    }
+  } catch (error) {
+    console.error('Redo error:', error)
+    messageUtil.error(t('redoFailed') || 'Redo failed')
+  }
+}
+
+/**
+ * Update UI state based on history manager state
+ */
+function updateHistoryState() {
+  canUndo.value = agentHistoryManager.canUndo()
+  canRedo.value = agentHistoryManager.canRedo()
+}
+
+/**
+ * Handle keyboard shortcuts for undo/redo
+ */
+function handleKeyboardShortcuts(event: KeyboardEvent) {
+  // Only handle shortcuts in agent mode
+  if (mode.value !== 'agent') return
+
+  // Ctrl+Z or Cmd+Z for Undo
+  if ((event.ctrlKey || event.metaKey) && event.key === 'z' && !event.shiftKey) {
+    event.preventDefault()
+    undoAction()
+  }
+
+  // Ctrl+Y or Cmd+Shift+Z for Redo
+  if (
+    ((event.ctrlKey || event.metaKey) && event.key === 'y') ||
+    ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key === 'z')
+  ) {
+    event.preventDefault()
+    redoAction()
+  }
+}
+
+function handleFileExtracted({ text, fileName }: { text: string; fileName: string }) {
+  // Add extracted content to context
+  if (!userInput.value.includes(text)) {
+    userInput.value += `\n\n[Context from ${fileName}]:\n${text}`
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('start-new-chat', startNewChat)
+
+  // Register selection change handler
+  if (typeof Office !== 'undefined' && Office.context && Office.context.document) {
+    Office.context.document.addHandlerAsync(Office.EventType.DocumentSelectionChanged, handleSelectionChange)
+  }
 })
 
-const currentModelSelect = computed({
-  get() {
-    switch (settingForm.value.api) {
-      case 'official':
-        return settingForm.value.officialModelSelect
-      case 'gemini':
-        return settingForm.value.geminiModelSelect
-      case 'ollama':
-        return settingForm.value.ollamaModelSelect
-      case 'groq':
-        return settingForm.value.groqModelSelect
-      case 'azure':
-        return settingForm.value.azureDeploymentName
-      default:
-        return ''
-    }
-  },
-  set(value) {
-    switch (settingForm.value.api) {
-      case 'official':
-        settingForm.value.officialModelSelect = value
-        localStorage.setItem(localStorageKey.model, value)
-        break
-      case 'gemini':
-        settingForm.value.geminiModelSelect = value
-        localStorage.setItem(localStorageKey.geminiModel, value)
-        break
-      case 'ollama':
-        settingForm.value.ollamaModelSelect = value
-        localStorage.setItem(localStorageKey.ollamaModel, value)
-        break
-      case 'groq':
-        settingForm.value.groqModelSelect = value
-        localStorage.setItem(localStorageKey.groqModel, value)
-        break
-      case 'azure':
-        settingForm.value.azureDeploymentName = value
-        localStorage.setItem(localStorageKey.azureDeploymentName, value)
-        break
-    }
-  },
-})
+onUnmounted(() => {
+  window.removeEventListener('start-new-chat', startNewChat)
 
-function settings() {
-  router.push('/settings')
-}
-
-function startNewChat() {
-  if (loading.value) {
-    stopGeneration()
+  // Unregister selection change handler
+  if (typeof Office !== 'undefined' && Office.context && Office.context.document) {
+    Office.context.document.removeHandlerAsync(Office.EventType.DocumentSelectionChanged, {
+      handler: handleSelectionChange,
+    })
   }
-  userInput.value = ''
-  history.value = []
-  threadId.value = uuidv4()
-  customSystemPrompt.value = ''
-  selectedPromptId.value = ''
-  adjustTextareaHeight()
-}
+})
 
 function stopGeneration() {
   if (abortController.value) {
@@ -472,9 +606,13 @@ async function sendMessage() {
   }
 
   // Add user message
-  const fullMessage = new HumanMessage(
-    selectedText ? `${userMessage}\n\n[Selected text: "${selectedText}"]` : userMessage,
-  )
+  const displayContext = selectedTextContext.value ? `\n\n[Selected Context]:\n${selectedTextContext.value}` : ''
+  const wordContext = selectedText ? `\n\n[Selected text from Word: "${selectedText}"]` : ''
+
+  const fullMessage = new HumanMessage(userMessage + displayContext + wordContext)
+
+  // Clear context after sending
+  selectedTextContext.value = ''
 
   scrollToBottom()
 
@@ -494,10 +632,11 @@ async function sendMessage() {
   } finally {
     loading.value = false
     abortController.value = null
+    await saveCurrentChat()
   }
 }
 
-async function applyQuickAction(actionKey: keyof typeof buildInPrompt) {
+async function applyQuickAction(actionKey: keyof typeof buildInPrompt, replaceInDoc = false) {
   if (!checkApiKey()) return
 
   // Get selected text
@@ -527,7 +666,10 @@ async function applyQuickAction(actionKey: keyof typeof buildInPrompt) {
   abortController.value = new AbortController()
 
   try {
-    await processChat(userMessage, systemMessage)
+    const result = await processChatWithReturn(userMessage, systemMessage)
+    if (replaceInDoc && result) {
+      await insertToDocument(result, 'replace')
+    }
   } catch (error: any) {
     if (error.name === 'AbortError') {
       messageUtil.info(t('generationStop'))
@@ -540,44 +682,90 @@ async function applyQuickAction(actionKey: keyof typeof buildInPrompt) {
   } finally {
     loading.value = false
     abortController.value = null
+    await saveCurrentChat()
   }
 }
 
-const agentPrompt = (lang: string) =>
-  `
-# Role
-You are a highly skilled Microsoft Word Expert Agent. Your goal is to assist users in creating, editing, and formatting documents with professional precision.
+/**
+ * Version of processChat that returns the final message content
+ */
+async function processChatWithReturn(userMessage: HumanMessage, systemMessage?: string): Promise<string> {
+  await processChat(userMessage, systemMessage)
+  const lastMsg = history.value[history.value.length - 1]
+  return lastMsg ? getMessageText(lastMsg) : ''
+}
 
-# Capabilities
-- You can interact with the document directly using provided tools (reading text, applying styles, inserting content, etc.).
-- You understand document structure, typography, and professional writing standards.
+async function handleFloatingMenuAction(actionType: 'chat' | 'translate' | 'polish' | 'summary' | 'grammar') {
+  const selectedText = await Word.run(async ctx => {
+    const range = ctx.document.getSelection()
+    range.load('text')
+    await ctx.sync()
+    return range.text
+  })
 
-# Guidelines
-1. **Tool First**: If a request requires document modification or inspection or web search and fetch, prioritize using the available tools.
-2. **Accuracy**: Ensure formatting and content changes are precise and follow the user's intent.
-3. **Conciseness**: Provide brief, helpful explanations of your actions.
-4. **Language**: You must communicate entirely in ${lang}.
+  if (!selectedText) return
 
-# Safety
-Do not perform destructive actions (like clearing the whole document) unless explicitly instructed.
-`.trim()
+  if (actionType === 'chat') {
+    selectedTextContext.value = selectedText
+    const abbr = selectedText.length > 50 ? selectedText.substring(0, 47) + '...' : selectedText
+    userInput.value = `[Selected: "${abbr}"] `
+    selectionMenuVisible.value = false
+  } else if (actionType === 'translate') {
+    applyQuickAction('translate', true)
+    selectionMenuVisible.value = false
+  } else if (actionType === 'polish') {
+    applyQuickAction('polish', true)
+    selectionMenuVisible.value = false
+  } else if (actionType === 'summary') {
+    applyQuickAction('summary', true)
+    selectionMenuVisible.value = false
+  } else if (actionType === 'grammar') {
+    applyQuickAction('grammar', true)
+    selectionMenuVisible.value = false
+  }
+}
 
-const standardPrompt = (lang: string) =>
-  `You are a helpful Microsoft Word specialist. Help users with drafting, brainstorming, and Word-related questions. Reply in ${lang}.`
+const agentPrompt = (lang: string) => SYSTEM_PROMPTS.DEFAULT + ` Reply in ${lang}.`
+const standardPrompt = (lang: string) => SYSTEM_PROMPTS.DEFAULT + ` Reply in ${lang}.`
+const designerPrompt = (lang: string) =>
+  `You are a creative designer helper. You can generate images. Reply in ${lang}.`
 
 async function processChat(userMessage: HumanMessage, systemMessage?: string) {
   const settings = settingForm.value
   const { replyLanguage: lang, api: provider } = settings
 
-  const isAgentMode = mode.value === 'agent'
+  const currentMode = mode.value
+  const isAgentMode = currentMode === 'agent'
+  // const isDesignerMode = currentMode === 'designer' // Will use this later
 
-  const finalSystemMessage =
-    customSystemPrompt.value || systemMessage || (isAgentMode ? agentPrompt(lang) : standardPrompt(lang))
+  let finalSystemMessage = customSystemPrompt.value || systemMessage
+
+  if (!finalSystemMessage) {
+    if (currentMode === 'agent') {
+      finalSystemMessage = agentPrompt(lang)
+    } else if (currentMode === 'designer') {
+      finalSystemMessage = designerPrompt(lang)
+    } else if (currentMode === 'translation') {
+      const targetLang = translationControlsRef.value?.targetLanguage || lang
+      const style = translationControlsRef.value?.translationStyle || 'professional'
+      finalSystemMessage = `You are a professional translator. 
+      Task: Translate the following text or prompt into ${targetLang}.
+      Tone: ${style}.
+      Constraints: 
+      1. If the input is a prompt (e.g., "translate this to french"), execute the translation as requested.
+      2. If the input is just text and text is selected, translate the selected text.
+      3. Maintain the requested tone (${style}).
+      4. OUTPUT ONLY the translated text without any meta-talk or explanations.`
+    } else {
+      finalSystemMessage = standardPrompt(lang)
+    }
+  }
 
   const defaultSystemMessage = new SystemMessage(finalSystemMessage)
 
   // Add user message to history
   history.value.push(userMessage)
+  saveCurrentChat() // Fire and forget to save user message immediately
 
   // Prepare messages for LLM (always include system message first, followed by all history)
   const finalMessages = [defaultSystemMessage, ...history.value]
@@ -594,12 +782,25 @@ async function processChat(userMessage: HumanMessage, systemMessage?: string) {
       temperature: settings.officialTemperature,
       model: settings.officialModelSelect,
     },
+    gemini: {
+      provider: 'gemini',
+      geminiAPIKey: settings.geminiAPIKey,
+      maxTokens: settings.geminiMaxTokens,
+      temperature: settings.geminiTemperature,
+      geminiModel: settings.geminiModelSelect,
+    },
     groq: {
       provider: 'groq',
       groqAPIKey: settings.groqAPIKey,
-      groqModel: settings.groqModelSelect,
       maxTokens: settings.groqMaxTokens,
       temperature: settings.groqTemperature,
+      groqModel: settings.groqModelSelect,
+    },
+    ollama: {
+      provider: 'ollama',
+      ollamaEndpoint: settings.ollamaEndpoint,
+      ollamaModel: settings.ollamaModelSelect,
+      temperature: settings.ollamaTemperature,
     },
     azure: {
       provider: 'azure',
@@ -609,19 +810,6 @@ async function processChat(userMessage: HumanMessage, systemMessage?: string) {
       azureAPIVersion: settings.azureAPIVersion,
       maxTokens: settings.azureMaxTokens,
       temperature: settings.azureTemperature,
-    },
-    gemini: {
-      provider: 'gemini',
-      geminiAPIKey: settings.geminiAPIKey,
-      maxTokens: settings.geminiMaxTokens,
-      temperature: settings.geminiTemperature,
-      geminiModel: settings.geminiModelSelect,
-    },
-    ollama: {
-      provider: 'ollama',
-      ollamaEndpoint: settings.ollamaEndpoint,
-      ollamaModel: settings.ollamaModelSelect,
-      temperature: settings.ollamaTemperature,
     },
   }
 
@@ -633,10 +821,14 @@ async function processChat(userMessage: HumanMessage, systemMessage?: string) {
 
   history.value.push(new AIMessage(''))
 
-  // Use agent mode with tools if enabled
-  if (isAgentMode) {
-    const tools = getActiveTools()
+  const { state: authState } = useAuthStore()
+  const nexusProfile = authState.user?.profile?.nexus_profile
 
+  // Use agent mode with tools if enabled or if in specific modes requiring tools
+  if (isAgentMode || currentMode === 'designer') {
+    const tools = await getActiveTools()
+
+    const { getAgentResponse } = await import('@/api/union')
     await getAgentResponse({
       ...currentConfig,
       recursionLimit: settings.agentMaxIterations,
@@ -644,6 +836,7 @@ async function processChat(userMessage: HumanMessage, systemMessage?: string) {
       tools,
       errorIssue,
       loading,
+      nexusProfile,
       abortSignal: abortController.value?.signal,
       threadId: threadId.value,
       onStream: (text: string) => {
@@ -651,31 +844,36 @@ async function processChat(userMessage: HumanMessage, systemMessage?: string) {
         history.value[lastIndex] = new AIMessage(text)
         scrollToBottom()
       },
-      onToolCall: (toolName: string, _args: any) => {
-        // Show tool call in UI
-        const lastIndex = history.value.length - 1
-        const currentContent = getMessageText(history.value[lastIndex])
-        history.value[lastIndex] = new AIMessage(currentContent + `\n\n🔧 Calling tool: ${toolName}...`)
-        scrollToBottom()
+      onToolCall: (toolName: string, args: any) => {
+        const id = uuidv4()
+        addActivity({
+          id,
+          name: toolName,
+          args,
+          status: 'pending',
+        })
       },
-      onToolResult: (toolName: string, _result: string) => {
-        // Update with tool result
-        const lastIndex = history.value.length - 1
-        const currentContent = getMessageText(history.value[lastIndex])
-        const updatedContent = currentContent.replace(
-          `🔧 Calling tool: ${toolName}...`,
-          `✅ Tool ${toolName} completed`,
+      onToolResult: (toolName: string, result: string) => {
+        const pending = [...useAgentActivity().activities.value].find(
+          a => a.name === toolName && a.status === 'pending',
         )
-        history.value[lastIndex] = new AIMessage(updatedContent)
-        scrollToBottom()
+        if (pending) {
+          updateActivity(pending.id, {
+            status: 'success',
+            result,
+            duration: Date.now() - pending.timestamp,
+          })
+        }
       },
     })
   } else {
+    const { getChatResponse } = await import('@/api/union')
     await getChatResponse({
       ...currentConfig,
       messages: finalMessages,
       errorIssue,
       loading,
+      nexusProfile,
       abortSignal: abortController.value?.signal,
       threadId: threadId.value,
       onStream: (text: string) => {
@@ -699,6 +897,44 @@ async function processChat(userMessage: HumanMessage, systemMessage?: string) {
   scrollToBottom()
 }
 
+/**
+ * Executes an interactive action chip
+ */
+async function executeAction(data: any) {
+  if (!data || !data.type) return
+
+  switch (data.type) {
+    case 'insertText':
+      if (data.text) {
+        await insertToDocument(data.text, 'append')
+        messageUtil.success(t('insertedToDocument') || 'Text inserted')
+      }
+      break
+    case 'createTable':
+      if (data.rows && data.cols) {
+        try {
+          await Word.run(async context => {
+            const range = context.document.getSelection()
+            const table = range.insertTable(data.rows, data.cols, Word.InsertLocation.after, data.content || [])
+            table.styleBuiltIn = Word.BuiltInStyleName.gridTable4Accent1
+            await context.sync()
+          })
+          messageUtil.success(t('tableCreated') || 'Table created')
+        } catch (error) {
+          console.error('Failed to create table:', error)
+          messageUtil.error(t('failedToCreateTable'))
+        }
+      }
+      break
+    case 'summarizeDoc':
+      applyQuickAction('summary')
+      break
+    default:
+      console.warn('Unknown action type:', data.type)
+  }
+}
+
+// ... existing helper functions like insertToDocument, etc. ...
 async function insertToDocument(content: string, type: insertTypes) {
   insertType.value = type
 
@@ -707,11 +943,6 @@ async function insertToDocument(content: string, type: insertTypes) {
   } else {
     insertResult(content, insertType)
   }
-}
-
-function copyToClipboard(text: string) {
-  navigator.clipboard.writeText(text)
-  messageUtil.success(t('copied'))
 }
 
 function checkApiKey() {
@@ -729,102 +960,197 @@ function checkApiKey() {
   return true
 }
 
-const THINK_TAG = '<think>'
-const THINK_TAG_END = '</think>'
+// History Handling (Stubbed since it was in original but complex logic might be elsewhere)
+// Function prototypes to match template calls
 
-interface RenderSegment {
-  type: 'text' | 'think'
-  text: string
-}
+const exportHistoryToDocument = async () => {
+  if (history.value.length === 0) return
 
-const flattenContentArray = (content: any[]): string =>
-  content
-    .map((part: any) => {
-      if (typeof part === 'string') return part
-      if (part?.text && typeof part.text === 'string') return part.text
-      if (part?.data && typeof part.data === 'string') return part.data
-      return ''
+  try {
+    loading.value = true
+    messageUtil.info(t('exportingToWord') || 'Exporting chat history to Word...')
+
+    await Word.run(async context => {
+      const body = context.document.body
+
+      // Create a section for the chat history
+      const section = body.insertParagraph('--- Word AI Chat History ---', Word.InsertLocation.end)
+      section.font.bold = true
+      section.font.size = 14
+      section.font.color = '#0969da'
+
+      const timestamp = body.insertParagraph(`Exported on: ${new Date().toLocaleString()}`, Word.InsertLocation.end)
+      timestamp.font.italic = true
+      timestamp.font.size = 10
+
+      // Iterate through messages and insert
+      for (const msg of history.value) {
+        if (msg instanceof SystemMessage) continue
+
+        const role = msg instanceof HumanMessage ? 'User' : 'Assistant'
+        const p = body.insertParagraph(`\n[${role}]:`, Word.InsertLocation.end)
+        p.font.bold = true
+
+        // Clean text (remove <think> tags for export)
+        const text = cleanMessageText(msg)
+        body.insertParagraph(text, Word.InsertLocation.end)
+      }
+
+      body.insertParagraph('\n--- End of Export ---\n', Word.InsertLocation.end)
+
+      await context.sync()
     })
-    .join('')
 
-const getMessageText = (msg: Message): string => {
-  const content: any = (msg as any).content
-  if (typeof content === 'string') return content
-  if (Array.isArray(content)) return flattenContentArray(content)
-  return ''
-}
-
-const cleanMessageText = (msg: Message): string => {
-  const raw = getMessageText(msg)
-  const regex = new RegExp(`${THINK_TAG}[\\s\\S]*?${THINK_TAG_END}`, 'g')
-  return raw.replace(regex, '').trim()
-}
-
-const splitThinkSegments = (text: string): RenderSegment[] => {
-  if (!text) return []
-
-  const segments: RenderSegment[] = []
-  let cursor = 0
-
-  while (cursor < text.length) {
-    const start = text.indexOf(THINK_TAG, cursor)
-    if (start === -1) {
-      segments.push({ type: 'text', text: text.slice(cursor) })
-      break
-    }
-
-    if (start > cursor) {
-      segments.push({ type: 'text', text: text.slice(cursor, start) })
-    }
-
-    const end = text.indexOf(THINK_TAG_END, start + THINK_TAG.length)
-    if (end === -1) {
-      segments.push({
-        type: 'think',
-        text: text.slice(start + THINK_TAG.length),
-      })
-      break
-    }
-
-    segments.push({
-      type: 'think',
-      text: text.slice(start + THINK_TAG.length, end),
-    })
-    cursor = end + THINK_TAG_END.length
+    messageUtil.success(t('exportSuccess') || 'Chat history exported successfully')
+  } catch (err: any) {
+    console.error('Export error:', err)
+    messageUtil.error(`${t('exportFailed') || 'Failed to export history'}: ${err.message}`)
+  } finally {
+    loading.value = false
   }
-
-  return segments.filter(segment => segment.text)
 }
 
-const renderSegments = (msg: Message): RenderSegment[] => {
-  const raw = getMessageText(msg)
-  return splitThinkSegments(raw)
-}
-
-const addWatch = () => {
-  watch(
-    () => settingForm.value.replyLanguage,
-    () => {
-      localStorage.setItem(localStorageKey.replyLanguage, settingForm.value.replyLanguage)
-    },
-  )
-  watch(
-    () => settingForm.value.api,
-    () => {
-      localStorage.setItem(localStorageKey.api, settingForm.value.api)
-    },
-  )
-}
-
-async function initData() {
-  insertType.value = (localStorage.getItem(localStorageKey.insertType) as insertTypes) || 'replace'
-}
+// Load Chat History on Mount
+onMounted(async () => {
+  await loadHistory()
+  document.addEventListener('keydown', handleKeyboardShortcuts)
+})
 
 onBeforeMount(() => {
-  addWatch()
-  initData()
-  loadSavedPrompts()
+  document.removeEventListener('keydown', handleKeyboardShortcuts)
+})
+
+// Watch mode changes to manage agent history
+watch(mode, (newMode, oldMode) => {
+  if (oldMode === 'agent' && newMode !== 'agent') {
+    // Clear agent history when leaving agent mode
+    agentHistoryManager.clear()
+    updateHistoryState()
+  }
+  if (newMode === 'agent') {
+    // Initialize history state when entering agent mode
+    updateHistoryState()
+  }
 })
 </script>
 
-<style scoped src="./HomePage.css"></style>
+<style scoped>
+.copilot-chat {
+  position: relative;
+  display: flex;
+  height: 100vh;
+  background-color: var(--color-bg-primary);
+  flex-direction: column;
+}
+
+.copilot-chat.zero-state {
+  justify-content: center;
+}
+
+/* History Sidebar */
+.chat-history-sidebar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 100;
+  display: flex;
+  border-right: 1px solid var(--glass-border);
+  width: 280px;
+  height: 100%;
+  background-color: var(--glass-bg);
+  box-shadow: var(--glass-shadow);
+  transition: transform 0.3s ease;
+  backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  transform: translateX(-100%);
+  flex-direction: column;
+}
+
+.chat-history-sidebar.open {
+  transform: translateX(0);
+}
+
+.history-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--color-border);
+  padding: 16px;
+}
+
+.history-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.history-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  border-radius: 6px;
+  padding: 10px;
+  cursor: pointer;
+}
+
+.history-item:hover,
+.history-item.active {
+  background-color: var(--color-bg-hover);
+}
+
+.history-info {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.history-title {
+  overflow: hidden;
+  font-size: 0.9em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-date {
+  font-size: 0.75em;
+  color: var(--color-text-secondary);
+}
+
+/* Chat Header */
+.chat-header {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  z-index: 10;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+}
+
+.chat-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+
+.header-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.header-btn {
+  border: none;
+  border-radius: 4px;
+  padding: 8px;
+  background: none;
+  cursor: pointer;
+}
+
+.header-btn:hover {
+  background-color: var(--color-bg-secondary);
+}
+</style>

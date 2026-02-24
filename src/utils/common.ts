@@ -11,14 +11,8 @@ export function checkAuth(auth: Auth): boolean {
   switch (auth.type) {
     case 'official':
       return !!auth.apiKey
-    case 'azure':
-      return !!auth.azureAPIKey
     case 'gemini':
       return !!auth.geminiAPIKey
-    case 'groq':
-      return !!auth.groqAPIKey
-    case 'ollama':
-      return true
     default:
       return false
   }
@@ -44,6 +38,7 @@ export const optionLists = {
   localLanguageList: [
     { label: 'English', value: 'en' },
     { label: '简体中文', value: 'zh-cn' },
+    { label: 'Français', value: 'fr' },
   ],
   apiList: getOptionList(availableAPIs),
   replyLanguageList: getOptionList(languageMap, 'value'),
@@ -51,3 +46,7 @@ export const optionLists = {
 
 export const getLabel = (key: string) => `${key}Label`
 export const getPlaceholder = (key: string) => `${key}Placeholder`
+
+export function formatDate(timestamp: number): string {
+  return new Date(timestamp).toLocaleDateString() + ' ' + new Date(timestamp).toLocaleTimeString()
+}

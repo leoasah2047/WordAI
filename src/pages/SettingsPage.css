@@ -991,3 +991,30 @@
     color: #8b949e;
   }
 }
+
+/* Security Note */
+.security-note {
+  margin-bottom: 12px;
+  border: 1px solid rgb(230 162 60 / 30%);
+  background-color: rgb(230 162 60 / 10%);
+}
+
+.security-info {
+  display: flex;
+  align-items: flex-start;
+  padding: 10px;
+  gap: 8px;
+}
+
+.security-icon {
+  margin-top: 2px;
+  color: #e6a23c !important;
+  flex-shrink: 0;
+}
+
+.security-text {
+  margin: 0;
+  font-size: 11px;
+  color: #656d76;
+  line-height: 1.4;
+}

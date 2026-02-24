@@ -188,6 +188,14 @@ export const buildInPrompt = {
   },
 }
 
+export const TRANSLATION_STYLES = [
+  { id: 'professional', label: 'Professional' },
+  { id: 'friendly', label: 'Friendly' },
+  { id: 'academic', label: 'Academic' },
+  { id: 'technical', label: 'Technical' },
+  { id: 'creative', label: 'Creative' },
+]
+
 export const getBuiltInPrompt = () => {
   const stored = localStorage.getItem('customBuiltInPrompts')
   if (!stored) {

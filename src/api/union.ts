@@ -78,9 +78,18 @@ async function executeChatFlow(model: BaseChatModel, options: ProviderOptions): 
       tools: [],
       checkpointer,
     })
+
+    const messages = [...options.messages]
+    if (options.nexusProfile && Object.keys(options.nexusProfile).length > 0) {
+      const p = options.nexusProfile
+      const instruction = `[PERSONA CONTEXT] You are assisting a ${p.domain || 'standard'} expert who prefers ${p.cognitive_style || 'professional'} style and writes with a ${p.tone || 'neutral'} tone. Focus on ${p.proficiency || 'clarity'} and mitigate any linguistic weaknesses.`
+      // @ts-ignore
+      messages.unshift({ role: 'system', content: instruction })
+    }
+
     const stream = await agent.stream(
       {
-        messages: options.messages,
+        messages,
       },
       {
         signal: options.abortSignal,
@@ -101,11 +110,22 @@ async function executeChatFlow(model: BaseChatModel, options: ProviderOptions): 
     }
   } catch (error: any) {
     if (error.name === 'AbortError' || options.abortSignal?.aborted) {
-      // Don't mark as error if intentionally aborted
       throw error
     }
-    options.errorIssue.value = true
-    console.error(error)
+
+    console.error('Chat Error:', error)
+
+    // Handle common API errors
+    const errorMessage = error.message || String(error)
+    if (errorMessage.includes('401') || errorMessage.includes('unauthorized')) {
+      options.errorIssue.value = 'invalidAPIKey'
+    } else if (errorMessage.includes('429') || errorMessage.includes('rate limit')) {
+      options.errorIssue.value = 'rateLimitExceeded'
+    } else if (errorMessage.includes('fetch') || errorMessage.includes('network')) {
+      options.errorIssue.value = 'networkError'
+    } else {
+      options.errorIssue.value = true
+    }
   } finally {
     options.loading.value = false
   }
@@ -119,9 +139,17 @@ async function executeAgentFlow(model: BaseChatModel, options: AgentOptions): Pr
       checkpointer,
     })
 
+    const messages = [...options.messages]
+    if (options.nexusProfile && Object.keys(options.nexusProfile).length > 0) {
+      const p = options.nexusProfile
+      const instruction = `[PERSONA CONTEXT] You are assisting a ${p.domain || 'standard'} expert who prefers ${p.cognitive_style || 'professional'} style and writes with a ${p.tone || 'neutral'} tone. Focus on ${p.proficiency || 'clarity'} and mitigate any linguistic weaknesses.`
+      // @ts-ignore
+      messages.unshift({ role: 'system', content: instruction })
+    }
+
     const stream = await agent.stream(
       {
-        messages: options.messages,
+        messages,
       },
       {
         recursionLimit: options.recursionLimit, //最大迭代次数
@@ -202,11 +230,23 @@ async function executeAgentFlow(model: BaseChatModel, options: AgentOptions): Pr
     if (error.name === 'AbortError' || options.abortSignal?.aborted) {
       throw error
     }
+
     if (error.name === 'GraphRecursionError') {
       options.errorIssue.value = 'recursionLimitExceeded'
+      return
     }
-    // TODO: more specific error handling based on LangGraph error
-    console.error(error)
+
+    // Handle common API errors
+    const errorMessage = error.message || String(error)
+    if (errorMessage.includes('401') || errorMessage.includes('unauthorized')) {
+      options.errorIssue.value = 'invalidAPIKey'
+    } else if (errorMessage.includes('429') || errorMessage.includes('rate limit')) {
+      options.errorIssue.value = 'rateLimitExceeded'
+    } else if (errorMessage.includes('fetch') || errorMessage.includes('network')) {
+      options.errorIssue.value = 'networkError'
+    } else {
+      options.errorIssue.value = true
+    }
   } finally {
     options.loading.value = false
   }

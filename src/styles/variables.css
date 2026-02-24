@@ -1,0 +1,66 @@
+:root {
+  --color-primary: #0969da;
+  --color-primary-light: #e6eefc;
+  --color-secondary: #8250df;
+  --color-background: #ffffff;
+  --color-secondary-background: #f6f8fa;
+  --color-border: #d0d7de;
+  --color-text-primary: #1f2328;
+  --color-text-secondary: #656d76;
+  --color-input-background: #ffffff;
+  --sidebar-width-collapsed: 60px;
+  --sidebar-width-expanded: 200px;
+  --header-height: 48px;
+  
+  /* New variables for HomePage and ModeSelector */
+  --color-bg-primary: #ffffff;
+  --color-bg-secondary: #f6f8fa;
+  --color-bg-hover: #e6eef6;
+  --color-bg-accent: #ddf4ff;
+  --color-bg-active: #e6eefc;
+  
+  /* Glassmorphism */
+  --glass-bg: rgb(255 255 255 / 75%);
+  --glass-border: rgb(208 215 222 / 40%);
+  --glass-blur: blur(12px);
+  --glass-shadow: 0 8px 32px 0 rgb(31 38 135 / 10%);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-primary: #1f6feb;
+    --color-primary-light: rgb(31 111 235 / 20%);
+    --color-secondary: #d1bcf5;
+    --color-background: #0d1117;
+    --color-secondary-background: #161b22;
+    --color-border: #30363d;
+    --color-text-primary: #e6edf3;
+    --color-text-secondary: #7d8590;
+    --color-input-background: #0d1117;
+    
+    /* Dark mode for new variables */
+    --color-bg-primary: #0d1117;
+    --color-bg-secondary: #161b22;
+    --color-bg-hover: #21262d;
+    --color-bg-accent: #1c2d41;
+    --color-bg-active: rgb(31 111 235 / 20%);
+
+    /* Glassmorphism Dark */
+    --glass-bg: rgb(13 17 23 / 75%);
+    --glass-border: rgb(48 54 61 / 60%);
+    --glass-blur: blur(12px);
+    --glass-shadow: 0 8px 32px 0 rgb(0 0 0 / 30%);
+  }
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  color: var(--color-text-primary);
+  background-color: var(--color-background);
+}
+
+* {
+  box-sizing: border-box;
+}
