@@ -71,7 +71,6 @@ import { useI18n } from 'vue-i18n'
 import { getChatResponse } from '@/api/union'
 import AppLoading from '@/components/AppLoading.vue'
 import { useAuthStore } from '@/stores/AuthStore'
-import { orchestrator } from '@/utils/agentOrchestrator'
 import { getIcon } from '@/utils/icons'
 import { message as messageUtil } from '@/utils/message'
 import useSettingForm from '@/utils/settingForm'
@@ -146,13 +145,52 @@ async function handleGenerateDraft() {
 
   if (props.useAgentMode) {
     try {
-      await orchestrator.execute(prompt, [], {
-        language: props.outputLanguage,
-        extractedText: props.extractedText,
+      const { getAgentResponse } = await import('@/api/union')
+      const { CreateDocumentSetupSchema } = await import('@/schemas/agentSchemas')
+
+      const settings = settingForm.value
+      const taskPrompt = `Context (Source of Truth): ${props.extractedText}\n\nTask: ${prompt}`
+
+      await getAgentResponse({
+        provider: settings.api as any,
+        config: {
+          apiKey: settings.officialAPIKey,
+          baseURL: settings.officialBasePath,
+          dangerouslyAllowBrowser: true,
+        },
+        geminiAPIKey: settings.geminiAPIKey,
+        groqAPIKey: settings.groqAPIKey,
+        model: settings.officialModelSelect,
+        geminiModel: settings.geminiModelSelect,
+        groqModel: settings.groqModelSelect,
+        ollamaModel: settings.ollamaModelSelect,
+        azureAPIKey: settings.azureAPIKey,
+        azureAPIEndpoint: settings.azureAPIEndpoint,
+        azureDeploymentName: settings.azureDeploymentName,
+
+        actionSchema: CreateDocumentSetupSchema,
+        messages: [{ role: 'user', content: taskPrompt }],
+        errorIssue: ref(null),
+        loading: ref(true),
+        onStream: (text: string) => {
+          try {
+            const data = JSON.parse(text)
+            let md = `# ${data.title}\n\n*${data.description}*\n*Reasoning: ${data.agent_reasoning}*\n\n`
+            for (const section of data.sections) {
+              md += `## ${section.title}\n${section.content}\n`
+              if (section.requires_source_verification && section.source_reference) {
+                md += `\n*(Source: ${section.source_reference})*\n`
+              }
+              md += `\n`
+            }
+            generatedContent.value = md
+          } catch {
+            generatedContent.value = text
+          }
+        },
       })
-      messageUtil.success(t('taskCompleted') || 'Document creation completed by AI Agent.')
       draftState.value = 'result'
-      generatedContent.value = `AI Agent has completed the ${selectedTemplate.value.name}. Please check the document.`
+      messageUtil.success(t('taskCompleted') || 'Document creation completed.')
     } catch (err: any) {
       messageUtil.error(err.message || t('failedToGenerate'))
     } finally {

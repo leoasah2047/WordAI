@@ -829,8 +829,11 @@ async function processChat(userMessage: HumanMessage, systemMessage?: string) {
     const tools = await getActiveTools()
 
     const { getAgentResponse } = await import('@/api/union')
+    const agentSchemas = await import('@/schemas/agentSchemas')
+
     await getAgentResponse({
       ...currentConfig,
+      actionSchema: currentMode === 'agent' ? agentSchemas.HomeAgentActionSchema : undefined,
       recursionLimit: settings.agentMaxIterations,
       messages: finalMessages,
       tools,
@@ -839,9 +842,40 @@ async function processChat(userMessage: HumanMessage, systemMessage?: string) {
       nexusProfile,
       abortSignal: abortController.value?.signal,
       threadId: threadId.value,
-      onStream: (text: string) => {
+      onStream: async (text: string) => {
         const lastIndex = history.value.length - 1
-        history.value[lastIndex] = new AIMessage(text)
+        try {
+          // If actionSchema was used, it returned stringified JSON
+          const action = JSON.parse(text)
+
+          let displayMsg = action.agent_reasoning ? `[Agent] ${action.agent_reasoning}\n\n` : ''
+
+          if (action.type === 'insert_text') {
+            displayMsg += action.content
+            history.value[lastIndex] = new AIMessage(displayMsg)
+            await insertToDocument(action.content, action.location === 'replace_selection' ? 'replace' : 'append')
+          } else if (action.type === 'modify_selection') {
+            displayMsg += `Task: Modifying selection according to instructions: ${action.instructions}`
+            history.value[lastIndex] = new AIMessage(displayMsg)
+            // Ideally trigger modify selection tool here
+          } else if (action.type === 'execute_tool') {
+            displayMsg += `Executing tool: ${action.tool_name}`
+            history.value[lastIndex] = new AIMessage(displayMsg)
+            const id = uuidv4()
+            addActivity({ id, name: action.tool_name, args: action.arguments, status: 'pending' })
+          } else if (action.type === 'request_user_clarification') {
+            displayMsg += action.question
+            history.value[lastIndex] = new AIMessage(displayMsg)
+          } else if (action.type === 'no_action') {
+            displayMsg += `No Action: ${action.reason}`
+            history.value[lastIndex] = new AIMessage(displayMsg)
+          } else {
+            history.value[lastIndex] = new AIMessage(text)
+          }
+        } catch {
+          // Not JSON or schema parse failed
+          history.value[lastIndex] = new AIMessage(text)
+        }
         scrollToBottom()
       },
       onToolCall: (toolName: string, args: any) => {

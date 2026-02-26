@@ -133,12 +133,6 @@ async function executeChatFlow(model: BaseChatModel, options: ProviderOptions): 
 
 async function executeAgentFlow(model: BaseChatModel, options: AgentOptions): Promise<void> {
   try {
-    const agent = createAgent({
-      model,
-      tools: options.tools || [],
-      checkpointer,
-    })
-
     const messages = [...options.messages]
     if (options.nexusProfile && Object.keys(options.nexusProfile).length > 0) {
       const p = options.nexusProfile
@@ -146,6 +140,20 @@ async function executeAgentFlow(model: BaseChatModel, options: AgentOptions): Pr
       // @ts-ignore
       messages.unshift({ role: 'system', content: instruction })
     }
+
+    if (options.actionSchema) {
+      // Use structured output mode
+      const boundModel = model.withStructuredOutput(options.actionSchema)
+      const result = await boundModel.invoke(messages, { signal: options.abortSignal })
+      options.onStream(JSON.stringify(result))
+      return
+    }
+
+    const agent = createAgent({
+      model,
+      tools: options.tools || [],
+      checkpointer,
+    })
 
     const stream = await agent.stream(
       {

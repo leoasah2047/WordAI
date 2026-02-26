@@ -166,15 +166,58 @@ Instructions: ${step.instruction}
 Context:
 - Output Language: ${outputLanguage.value}
 - User Identity: ${userIdentity.value}
+- Base Documents: ${extractedText.value ? extractedText.value.substring(0, 2000) : 'None'}
 - Source of Truth Context: ${sourceOfTruth.value.substring(0, 5000)}
 - Brand Guidelines: ${brandConfig.value.substring(0, 3000)}
 
 Please generate the content for this step and insert it into the document if appropriate.`
 
-        const { orchestrator } = await import('@/utils/agentOrchestrator')
-        await orchestrator.execute(taskPrompt, [], {
-          extractedText: extractedText.value,
-          outputLanguage: outputLanguage.value,
+        const { getAgentResponse } = await import('@/api/union')
+        const { AdvisorActionSchema } = await import('@/schemas/agentSchemas')
+
+        await getAgentResponse({
+          provider: settingForm.value.api as any,
+          config: {
+            apiKey: settingForm.value.officialAPIKey,
+            baseURL: settingForm.value.officialBasePath,
+            dangerouslyAllowBrowser: true,
+          },
+          geminiAPIKey: settingForm.value.geminiAPIKey,
+          groqAPIKey: settingForm.value.groqAPIKey,
+          model: settingForm.value.officialModelSelect,
+          geminiModel: settingForm.value.geminiModelSelect,
+          groqModel: settingForm.value.groqModelSelect,
+          ollamaModel: settingForm.value.ollamaModelSelect,
+          azureAPIKey: settingForm.value.azureAPIKey,
+          azureAPIEndpoint: settingForm.value.azureAPIEndpoint,
+          azureDeploymentName: settingForm.value.azureDeploymentName,
+
+          actionSchema: AdvisorActionSchema,
+          errorIssue: ref(null),
+          loading: ref(true),
+          messages: [{ role: 'user', content: taskPrompt }],
+          onStream: (text: string) => {
+            try {
+              const action = JSON.parse(text)
+              // Simple handling of action matching schema
+              if (action.type === 'proceed_to_next_step') {
+                stepResponse.value = action.step_summary
+                generatedContent.value += `\n\n### [Processed: ${step.title}]\n${action.step_summary}\n*Reasoning: ${action.agent_reasoning}*`
+              } else if (action.type === 'propose_document_edit') {
+                stepResponse.value = action.explanation
+                generatedContent.value += `\n\n### [Edit Proposed: ${step.title}]\n**Original**: ${action.original_text}\n**Proposed**: ${action.proposed_text}\n*Reasoning: ${action.agent_reasoning}*`
+              } else if (action.type === 'request_approval') {
+                stepResponse.value = action.summary
+                generatedContent.value += `\n\n### [Approval Needed]\n${action.summary}`
+              } else if (action.type === 'highlight_critical_range') {
+                stepResponse.value = action.reason
+                generatedContent.value += `\n\n### [Highlight Needed]\n${action.text_to_highlight} (Severity: ${action.severity})\n*Reason: ${action.reason}*`
+              }
+            } catch (_e) {
+              // Fallback
+              stepResponse.value = text
+            }
+          },
         })
         step.status = 'completed'
       } else {
@@ -184,13 +227,33 @@ Language: ${outputLanguage.value}
 Identity: ${userIdentity.value}
 Context: ${sourceOfTruth.value.substring(0, 4000)}`
 
-        const response = await getChatResponse(prompt, {
-          apiKey: settingForm.value.geminiAPIKey || '',
+        await getChatResponse({
+          provider: settingForm.value.api as any,
+          config: {
+            apiKey: settingForm.value.officialAPIKey,
+            baseURL: settingForm.value.officialBasePath,
+            dangerouslyAllowBrowser: true,
+          },
+          geminiAPIKey: settingForm.value.geminiAPIKey,
+          groqAPIKey: settingForm.value.groqAPIKey,
+          model: settingForm.value.officialModelSelect,
+          geminiModel: settingForm.value.geminiModelSelect,
+          groqModel: settingForm.value.groqModelSelect,
+          ollamaModel: settingForm.value.ollamaModelSelect,
+          azureAPIKey: settingForm.value.azureAPIKey,
+          azureAPIEndpoint: settingForm.value.azureAPIEndpoint,
+          azureDeploymentName: settingForm.value.azureDeploymentName,
+
+          messages: [{ role: 'user', content: prompt }],
+          loading: ref(true),
+          errorIssue: ref(null),
+          onStream: text => {
+            stepResponse.value = text
+          },
         })
-        stepResponse.value = response
-        generatedContent.value += `\n\n### ${step.title}\n${response}`
+        generatedContent.value += `\n\n### ${step.title}\n${stepResponse.value}`
         step.status = 'completed'
-        await insertToDoc(response)
+        await insertToDoc(stepResponse.value)
       }
     } catch (error) {
       console.error('Step execution failed:', error)
@@ -208,8 +271,8 @@ Context: ${sourceOfTruth.value.substring(0, 4000)}`
         selection.insertText(text, Word.InsertLocation.replace)
         await context.sync()
       })
-    } catch (e) {
-      console.error('Error inserting text', e)
+    } catch (_e) {
+      console.error('Error inserting text', _e)
     }
   }
 
