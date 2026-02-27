@@ -6,7 +6,8 @@ export type DesignerToolName = 'generateImage'
 const designerToolDefinitions: Record<DesignerToolName, any> = {
   generateImage: {
     name: 'generateImage',
-    description: 'Generate an image based on a text prompt using Gemini AI. Returns a URL to the generated image.',
+    description:
+      'Generate an image based on a text prompt using Google Nano Banana API. Returns a URL to the generated image.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -27,11 +28,15 @@ const designerToolDefinitions: Record<DesignerToolName, any> = {
       try {
         // Import dynamically to avoid circular dependencies if any, though apiClient is safe
         const { apiClient } = await import('@/utils/apiClient')
+        const { default: useSettingForm } = await import('@/utils/settingForm')
+        const settings = useSettingForm()
+        const model = settings.value.geminiModelSelect || 'gemini-3.1-flash-image-preview'
 
         const result = await apiClient.post<any>('/generate-image', {
           prompt,
           style,
           aspect_ratio: '1:1',
+          model,
         })
 
         if (result.image_url) {

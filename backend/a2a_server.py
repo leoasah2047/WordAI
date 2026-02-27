@@ -11,7 +11,7 @@ Implements:
 Specification: https://a2a.ai/spec
 """
 
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Union
 from pydantic import BaseModel
 from enum import Enum
 import uuid
@@ -26,8 +26,10 @@ from logging_config import get_logger
 from sqlalchemy.orm import Session
 from models import TaskModel, User
 from websocket_manager import ws_manager
-from tools import tool_registry, ToolCall
+from tools import tool_registry, ToolCall as LegacyToolCall
 from rag import rag_service
+from dms_utils import DMSClient
+from agent_schemas import HomeAgentAction, AdvisorAction, CreateDocumentSetup
 
 logger = get_logger(__name__)
 
@@ -77,7 +79,7 @@ class TaskStatus(BaseModel):
 class Artifact(BaseModel):
     """Task artifact (output data)"""
     id: str
-    type: str  # "text", "tool_call", "context", "data"
+    type: str  # "text", "tool_call", "context", "data", "agent_action"
     content: str | Dict[str, Any]
     metadata: Optional[Dict[str, Any]] = None
 
@@ -122,6 +124,7 @@ class A2AServer:
     - User authentication
     - Database persistence
     - Tool execution
+    - Structured Agent Actions
     """
     
     def __init__(self):
@@ -155,9 +158,6 @@ class A2AServer:
     ) -> Task:
         """
         Handle tasks/send request with full persistence and auth
-        
-        Phase 3: User authentication
-        Phase 4: Database persistence
         """
         task_id = params.id
         
@@ -252,226 +252,164 @@ class A2AServer:
     
     async def _process_task(self, task: Task, db: Session, api_key: Optional[str] = None):
         """
-        Process task with all enhancements:
-        - Phase 1: WebSocket streaming
-        - Phase 2: RAG context retrieval
-        - Phase 5: Tool execution
+        Process task with structured output and autonomous tool execution
         """
         try:
-            # Update DB and broadcast status
-            await self._update_task_status(
-                task.id, db,
-                TaskState.IN_PROGRESS,
-                "Processing request",
-                0.1
-            )
-            
-            logger.info(f"Processing task {task.id}")
-            
-            # Extract user message
-            user_message = next(
-                (msg for msg in reversed(task.history) if msg.role == Role.USER),
-                None
-            )
-            
-            if not user_message:
-                raise ValueError("No user message found in task")
-            
-            # Get content
-            if isinstance(user_message.content, str):
-                user_content = user_message.content
-            else:
-                user_content = " ".join(
-                    part.text for part in user_message.content if part.text
-                )
-            
-            # Extract metadata
-            metadata = task.metadata or {}
-            language = metadata.get("language", "English")
-            
-            # Phase 2: RAG Context Retrieval
-            await self._update_task_status(task.id, db, TaskState.IN_PROGRESS, "Retrieving context", 0.2)
-            
-            context_text = ""
-            context_sources = []
-            
-            try:
-                # Search for relevant context
-                context_docs = await rag_service.query(
-                    user_content,
-                    top_k=4
-                )
-                
-                if context_docs:
-                    context_text = "\n\n".join([doc.page_content for doc in context_docs])
-                    context_sources = [
-                        {
-                            "source": doc.metadata.get("source", "Unknown"),
-                            "excerpt": doc.page_content[:200]
-                        }
-                        for doc in context_docs
-                    ]
-                    
-                    # Store context sources in DB
-                    db_task = db.query(TaskModel).filter(TaskModel.id == task.id).first()
-                    if db_task:
-                        db_task.context_sources = context_sources
-                        db.commit()
-                    
-                    logger.info(f"Retrieved {len(context_docs)} context documents")
-            except Exception as e:
-                logger.warning(f"RAG retrieval failed, continuing without context: {e}")
-            
-            # Phase 5: Get available tools
-            tools_schema = tool_registry.get_tools_schema()
-            tools_text = json.dumps(tools_schema, indent=2)
-            
-            # Build enriched prompt
-            system_prompt = f"""You are an expert AI assistant.
-..."""
-            
-            # Phase 1: Stream LLM response
-            await self._update_task_status(task.id, db, TaskState.IN_PROGRESS, "Analyzing request and planning response", 0.3)
-            await asyncio.sleep(0.5) # Slight delay for UI visibility
-            await self._update_task_status(task.id, db, TaskState.IN_PROGRESS, "Generating consultant insights", 0.5)
-            
-            # Determine API Key hierarchy: Header > User Profile > Environment
-            llm_api_key = api_key
-            
-            # If not in header, check user profile
-            if not llm_api_key and task.userId:
+            # Determine correctly authorized user
+            db_user = None
+            if task.userId:
                 db_user = db.query(User).filter(User.id == task.userId).first()
-                if db_user and db_user.profile and db_user.profile.gemini_api_key:
+            
+            # Setup DMS tool handlers for this specific task context
+            if db_user:
+                dms_client = DMSClient(db_user, db)
+                
+                async def list_dms_handler(**kwargs):
+                    return await dms_client.list_files(
+                        folder_path=kwargs.get("folder_path"),
+                        limit=kwargs.get("limit", 20)
+                    )
+                
+                async def read_dms_handler(**kwargs):
+                    return await dms_client.read_file(file_id=kwargs.get("file_id"))
+                
+                # Injection (not ideal but works for prototype, ideally tool_registry is per-request or stateless)
+                tool_registry.tools["listDmsFiles"].handler = list_dms_handler
+                tool_registry.tools["readDmsFile"].handler = read_dms_handler
+
+            # Determine API Key
+            llm_api_key = api_key
+            if not llm_api_key and db_user:
+                if db_user.profile and db_user.profile.gemini_api_key:
                     llm_api_key = db_user.profile.gemini_api_key
-                    logger.info(f"Using Gemini API key from user profile for task {task.id}")
             
-            # Fallback to environment variable
             llm_api_key = llm_api_key or os.getenv("GOOGLE_API_KEY")
-            
             if not llm_api_key:
-                raise ValueError("Google API Key not configured (checked header, profile, and env)")
+                raise ValueError("API Key not configured")
             
             llm = ChatGoogleGenerativeAI(
                 model="gemini-1.5-pro",
                 google_api_key=llm_api_key,
-                temperature=0.4,
-                max_retries=2
+                temperature=0.2,
+                max_retries=3
             )
+            
+            # Determine correct schema based on mode
+            metadata = task.metadata or {}
+            mode = metadata.get("mode", "home")
+            
+            output_schema = HomeAgentAction
+            if mode == "advisor":
+                output_schema = AdvisorAction
+            elif mode == "create_document":
+                output_schema = CreateDocumentSetup
+            
+            # Bind structured output
+            structured_llm = llm.with_structured_output(output_schema)
+            
+            # Autonomous execution loop
+            max_iterations = 5
+            context_findings = []
+            
+            # Extract user message
+            user_message = next((msg for msg in reversed(task.history) if msg.role == Role.USER), None)
+            user_text = user_message.content if user_message and isinstance(user_message.content, str) else ""
 
-            
-            prompt = ChatPromptTemplate.from_template(system_prompt)
-            chain = prompt | llm | StrOutputParser()
-            
-            # Stream response chunks via WebSocket
-            response_chunks = []
-            async for chunk in chain.astream({}):
-                response_chunks.append(chunk)
-                await ws_manager.stream_llm_chunk(task.id, chunk)
-            
-            response_text = "".join(response_chunks)
-            
-            await self._update_task_status(task.id, db, TaskState.IN_PROGRESS, "Processing response", 0.8)
-            
-            # Add assistant response to history
-            assistant_message = Message(
-                role=Role.ASSISTANT,
-                content=response_text
-            )
-            
-            # Update DB with response
-            db_task = db.query(TaskModel).filter(TaskModel.id == task.id).first()
-            if db_task:
-                history = db_task.history or []
-                history.append(assistant_message.dict())
-                db_task.history = history
-                db.commit()
-            
-            # Create text artifact
-            artifact = Artifact(
-                id=str(uuid.uuid4()),
-                type="text",
-                content=response_text,
-                metadata={
-                    "language": language,
-                    "has_context": bool(context_text)
-                }
-            )
-            
-            # Phase 5: Extract and process tool calls
-            tool_calls = self._extract_tool_calls(response_text)
-            
-            if tool_calls:
-                logger.info(f"Extracted {len(tool_calls)} tool calls")
+            # Phase 2: RAG Context
+            await self._update_task_status(task.id, db, TaskState.IN_PROGRESS, "Consulting knowledge base", 0.2)
+            try:
+                docs = await rag_service.query(user_text, top_k=4)
+                if docs:
+                    context_findings.append(f"Knowledge Base: {[doc.page_content for doc in docs]}")
+            except Exception as e:
+                logger.warning(f"RAG failed: {e}")
+
+            iteration = 0
+            while iteration < max_iterations:
+                iteration += 1
+                await self._update_task_status(task.id, db, TaskState.IN_PROGRESS, f"Agent reasoning (Round {iteration})", 0.3 + (iteration * 0.1))
                 
-                for tool_call_data in tool_calls:
+                # Build context-aware prompt
+                system_msg = f"""Expert Word AI Agent. Mode: {mode}.
+Current Context Findings: {json.dumps(context_findings)}
+Available Tools: {json.dumps(tool_registry.get_tools_schema())}
+"""
+                prompt = ChatPromptTemplate.from_messages([
+                    ("system", system_msg),
+                    ("human", user_text)
+                ])
+                
+                # Get structured action
+                action = await (prompt | structured_llm).ainvoke({})
+                
+                logger.info(f"Agent Action ({mode}): {action}")
+
+                # Create artifact for reasoning visibility
+                action_artifact = Artifact(
+                    id=str(uuid.uuid4()),
+                    type="agent_action",
+                    content=action.dict()
+                )
+                await self._add_artifact_to_db(task.id, action_artifact, db)
+                await ws_manager.add_artifact(task.id, action_artifact.dict())
+
+                # Branch based on action type
+                if hasattr(action, 'type') and action.type == "execute_tool":
+                    await self._update_task_status(task.id, db, TaskState.IN_PROGRESS, f"Executing: {action.tool_name}", 0.5)
+                    
                     try:
-                        tool_call = tool_registry.create_tool_call(
-                            tool_call_data["tool"],
-                            tool_call_data["arguments"]
+                        # Pass user and db context to execute_tool
+                        result = await tool_registry.execute_tool(
+                            action.tool_name, 
+                            action.arguments,
+                            user=db_user,
+                            db=db
                         )
+                        context_findings.append(f"Tool {action.tool_name} Result: {result}")
                         
-                        # Create tool call artifact
-                        tool_artifact = Artifact(
-                            id=tool_call.id,
-                            type="tool_call",
-                            content=tool_call.dict(),
-                            metadata={"requires_confirmation": tool_call.requires_confirmation}
+                        # Add tool artifact
+                        tool_art = Artifact(
+                            id=str(uuid.uuid4()),
+                            type="tool_result",
+                            content={"tool": action.tool_name, "result": result}
                         )
-                        
-                        # Add to DB
-                        if db_task:
-                            artifacts = db_task.artifacts or []
-                            artifacts.append(tool_artifact.dict())
-                            db_task.artifacts = artifacts
-                            db.commit()
-                        
-                        # Broadcast via WebSocket
-                        await ws_manager.add_artifact(task.id, tool_artifact.dict())
-                        
+                        await self._add_artifact_to_db(task.id, tool_art, db)
+                        await ws_manager.add_artifact(task.id, tool_art.dict())
+
                     except Exception as e:
-                        logger.error(f"Tool call creation failed: {e}")
-            
-            # Add text artifact to DB
-            if db_task:
-                artifacts = db_task.artifacts or []
-                artifacts.append(artifact.dict())
-                db_task.artifacts = artifacts
-                db.commit()
-            
-            # Complete task
-            await self._update_task_status(
-                task.id, db,
-                TaskState.COMPLETED,
-                "Task completed successfully",
-                1.0,
-                completed=True
-            )
-            
-            logger.info(f"Task {task.id} completed successfully")
-            
+                        context_findings.append(f"Tool {action.tool_name} Error: {str(e)}")
+                        continue
+                
+                elif hasattr(action, 'type') and action.type == "request_user_clarification":
+                    await self._complete_task(task.id, db, f"Clarification requested: {action.question}")
+                    return
+                
+                elif hasattr(action, 'type') and action.type == "no_action":
+                    await self._complete_task(task.id, db, f"No action taken: {action.reason}")
+                    return
+
+                else:
+                    # Final answer or Complex structure (like CreateDocumentSetup)
+                    await self._complete_task(task.id, db, "Agent task completed")
+                    return
+
+            await self._complete_task(task.id, db, "Task completed (max iterations reached)")
+
         except Exception as e:
-            logger.error(f"Task {task.id} failed: {str(e)}")
-            
-            await self._update_task_status(
-                task.id, db,
-                TaskState.FAILED,
-                f"Task failed: {str(e)}",
-                1.0
-            )
-            
-            # Add error message to history
-            error_message = Message(
-                role=Role.ASSISTANT,
-                content=f"I encountered an error while processing your request: {str(e)}"
-            )
-            
-            db_task = db.query(TaskModel).filter(TaskModel.id == task.id).first()
-            if db_task:
-                history = db_task.history or []
-                history.append(error_message.dict())
-                db_task.history = history
-                db.commit()
-    
+            logger.error(f"Task {task.id} failed: {e}")
+            await self._update_task_status(task.id, db, TaskState.FAILED, f"Error: {str(e)}", 1.0)
+
+    async def _add_artifact_to_db(self, task_id: str, artifact: Artifact, db: Session):
+        db_task = db.query(TaskModel).filter(TaskModel.id == task_id).first()
+        if db_task:
+            artifacts = list(db_task.artifacts or [])
+            artifacts.append(artifact.dict())
+            db_task.artifacts = artifacts
+            db.commit()
+
+    async def _complete_task(self, task_id: str, db: Session, message: str):
+        await self._update_task_status(task_id, db, TaskState.COMPLETED, message, 1.0, completed=True)
+
     async def _update_task_status(
         self,
         task_id: str,
@@ -483,60 +421,20 @@ class A2AServer:
     ):
         """Update task status in DB and broadcast via WebSocket"""
         db_task = db.query(TaskModel).filter(TaskModel.id == task_id).first()
-        
         if db_task:
             db_task.status_state = state.value
             db_task.status_message = message
             db_task.status_progress = progress
             db_task.updated_at = datetime.utcnow()
-            
             if completed:
                 db_task.completed_at = datetime.utcnow()
-            
             db.commit()
-        
-        # WebSocket broadcast
         await ws_manager.update_status(task_id, state.value, message, progress)
-    
+
     def _extract_tool_calls(self, response_text: str) -> List[Dict[str, Any]]:
-        """Extract tool calls from LLM response using a robust scanning approach"""
-        tool_calls = []
-        if "tool_call" not in response_text:
-            return tool_calls
-
-        import json
-        # Find all possible JSON-like blocks starting with {
-        start_indices = [i for i, char in enumerate(response_text) if char == '{']
-        
-        for start in start_indices:
-            # Try progressively longer substrings to find valid JSON
-            stack = 0
-            for end in range(start, len(response_text)):
-                if response_text[end] == '{':
-                    stack += 1
-                elif response_text[end] == '}':
-                    stack -= 1
-                    if stack == 0:
-                        candidate = response_text[start:end+1]
-                        try:
-                            data = json.loads(candidate)
-                            if isinstance(data, dict) and "tool_call" in data:
-                                tool_calls.append(data["tool_call"])
-                        except:
-                            pass
-                        break
-        
-        # Remove duplicates if any (by content)
-        unique_calls = []
-        seen = set()
-        for call in tool_calls:
-            call_str = json.dumps(call, sort_keys=True)
-            if call_str not in seen:
-                unique_calls.append(call)
-                seen.add(call_str)
-                
-        return unique_calls
+        # Deprecated: Using with_structured_output now
+        return []
 
 
-# Global enhanced server instance
+# Global server instance
 a2a_server = A2AServer()

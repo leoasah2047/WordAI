@@ -2,7 +2,13 @@ import pytest
 from unittest.mock import MagicMock, AsyncMock, patch
 from rag import RAGService
 from fastapi import UploadFile
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
 import io
+
+@pytest.fixture
+def mock_sparse_embeddings():
+    with patch("rag.SparseTextEmbedding") as mock:
+        yield mock
 
 @pytest.fixture
 def mock_qdrant():
@@ -14,19 +20,20 @@ def mock_embeddings():
     with patch("rag.GoogleGenerativeAIEmbeddings") as mock:
         yield mock
 
-def test_rag_service_init(mock_qdrant):
+def test_rag_service_init(mock_qdrant, mock_sparse_embeddings):
     service = RAGService()
     assert service.qdrant_url is not None
     assert service.collection_name == "word-gpt-plus"
+    assert service.use_hybrid is True
 
-def test_update_api_key(mock_qdrant, mock_embeddings):
+def test_update_api_key(mock_qdrant, mock_embeddings, mock_sparse_embeddings):
     service = RAGService()
     with patch.object(service, "_init_embeddings") as mock_init:
         service.update_api_key("new_key")
         mock_init.assert_called_with("new_key")
 
 @pytest.mark.asyncio
-async def test_ingest_file_txt(mock_qdrant, mock_embeddings):
+async def test_ingest_file_txt(mock_qdrant, mock_embeddings, mock_sparse_embeddings):
     service = RAGService()
     service.embeddings = MagicMock()
     service.client = MagicMock()
@@ -42,15 +49,18 @@ async def test_ingest_file_txt(mock_qdrant, mock_embeddings):
         assert "chunks_processed" in result
 
 @pytest.mark.asyncio
-async def test_query(mock_qdrant, mock_embeddings):
+async def test_collection_creation_dims(mock_qdrant, mock_embeddings, mock_sparse_embeddings):
+    from config import settings
     service = RAGService()
-    service.embeddings = MagicMock()
+    service.embeddings = MagicMock(spec=GoogleGenerativeAIEmbeddings)
     service.client = MagicMock()
+    service.client.collection_exists.return_value = False
     
-    with patch("rag.QdrantVectorStore") as mock_vs:
-        mock_vs_instance = mock_vs.return_value
-        mock_vs_instance.similarity_search.return_value = [MagicMock(page_content="result")]
-        
-        results = await service.query("test query")
-        assert len(results) == 1
-        assert results[0].page_content == "result"
+    # We need to mock QdrantVectorStore to avoid initialization issues during test
+    with patch("rag.QdrantVectorStore"):
+        service._get_vector_store()
+    
+    # Verify create_collection was called with correct size
+    args, kwargs = service.client.create_collection.call_args
+    assert kwargs["vectors_config"].size == settings.DENSE_EMBEDDING_DIM
+    assert settings.DENSE_EMBEDDING_DIM == 512

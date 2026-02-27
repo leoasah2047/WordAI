@@ -69,6 +69,8 @@ export const availableModels: string[] = [
 
 // Gemini API 可用的模型
 export const availableModelsForGemini: string[] = [
+  'gemini-3.1-flash-image-preview',
+  'gemini-3-pro-image-preview',
   'gemini-3-pro-preview',
   'gemini-3-flash-preview',
   'gemini-2.5-pro',

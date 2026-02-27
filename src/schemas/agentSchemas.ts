@@ -18,7 +18,7 @@ export const HomeAgentActionSchema = z.discriminatedUnion('type', [
     type: z.literal('execute_tool'),
     agent_reasoning: z.string().describe('Explanation for the Activity Feed'),
     tool_name: z.string().describe('Must be an enabled WordToolName or GeneralToolName'),
-    arguments: z.record(z.any()),
+    arguments: z.record(z.string(), z.any()),
   }),
   z.object({
     type: z.literal('request_user_clarification'),
@@ -62,6 +62,12 @@ export const AdvisorActionSchema = z.discriminatedUnion('type', [
     agent_reasoning: z.string(),
     current_step_index: z.number(),
     step_summary: z.string(),
+  }),
+  z.object({
+    type: z.literal('execute_tool'),
+    agent_reasoning: z.string().describe('Explanation for the Activity Feed'),
+    tool_name: z.string().describe('Must be an enabled WordToolName or GeneralToolName'),
+    arguments: z.record(z.string(), z.any()),
   }),
 ])
 

@@ -25,3 +25,5 @@ alembic
 redis
 psycopg2-binary
 pydantic-settings
+fastembed
+gunicorn

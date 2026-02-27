@@ -9,6 +9,7 @@ from langchain_core.documents import Document
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
 import tempfile
+from fastembed import SparseTextEmbedding
 
 from config import settings
 
@@ -19,10 +20,16 @@ class RAGService:
         self.qdrant_url = settings.QDRANT_URL
         self.qdrant_api_key = settings.QDRANT_API_KEY
         self.collection_name = settings.QDRANT_COLLECTION_NAME
+        self.use_hybrid = settings.USE_HYBRID_SEARCH
         
         self.embeddings = None
+        self.sparse_embeddings = None
+        
         if self.google_api_key:
             self._init_embeddings(self.google_api_key)
+
+        if self.use_hybrid:
+            self.sparse_embeddings = SparseTextEmbedding(model_name=settings.SPARSE_EMBEDDING_MODEL)
 
         # Initialize Qdrant Client
         # If running locally without a server, you can use path="local_qdrant"
@@ -39,7 +46,9 @@ class RAGService:
     def _init_embeddings(self, api_key: str):
          self.embeddings = GoogleGenerativeAIEmbeddings(
                 model="models/text-embedding-004",
-                google_api_key=api_key
+                google_api_key=api_key,
+                # This is the "Backup" fix:
+                output_dimensionality=512
             )
 
     def update_api_key(self, api_key: str):
@@ -54,12 +63,25 @@ class RAGService:
         # Ensure collection exists
         if not self.client.collection_exists(self.collection_name):
             try:
+                vectors_config = models.VectorParams(
+                    size=settings.DENSE_EMBEDDING_DIM, # Optimized dimension (e.g., 512)
+                    distance=models.Distance.COSINE
+                )
+                
+                sparse_vectors_config = None
+                if self.use_hybrid:
+                    sparse_vectors_config = {
+                        "sparse-text": models.SparseVectorParams(
+                            index=models.SparseIndexParams(
+                                on_disk=True,
+                            )
+                        )
+                    }
+
                 self.client.create_collection(
                     collection_name=self.collection_name,
-                    vectors_config=models.VectorParams(
-                        size=768, # Gemini text-embedding-004 dimension
-                        distance=models.Distance.COSINE
-                    )
+                    vectors_config=vectors_config,
+                    sparse_vectors_config=sparse_vectors_config
                 )
             except Exception as e:
                 print(f"Error creating collection: {e}")
@@ -109,7 +131,20 @@ class RAGService:
 
             # Index
             vector_store = self._get_vector_store()
-            vector_store.add_documents(documents=splits)
+            
+            if self.use_hybrid and self.sparse_embeddings:
+                # Add documents with sparse vectors
+                # LangChain Qdrant implementation handles hybrid search if configured
+                # However, for manual control or ensuring sparse vectors are generated:
+                texts = [doc.page_content for doc in splits]
+                metadatas = [doc.metadata for doc in splits]
+                
+                vector_store.add_texts(
+                    texts=texts,
+                    metadatas=metadatas
+                )
+            else:
+                vector_store.add_documents(documents=splits)
             
             print(f"Successfully processed {file.filename}: {len(splits)} chunks indexed with metadata {metadata}")
             return {"status": "success", "chunks_processed": len(splits)}
@@ -146,11 +181,22 @@ class RAGService:
                 # Fallback to simple dict filter for LangChain
                 qdrant_filter = filters
 
-        results = vector_store.similarity_search(
-            query_text,
-            k=top_k,
-            filter=qdrant_filter
-        )
+        search_type = "similarity"
+        if self.use_hybrid:
+            # LangChain Qdrant supports hybrid search via search_type="mmr" or custom logic
+            # For Qdrant specific hybrid, we can use the underlying client or trust LangChain's hybrid implementation
+            results = vector_store.similarity_search(
+                query_text,
+                k=top_k,
+                filter=qdrant_filter,
+                search_type="hybrid" # Supported by langchain-qdrant
+            )
+        else:
+            results = vector_store.similarity_search(
+                query_text,
+                k=top_k,
+                filter=qdrant_filter
+            )
         
         return results
 

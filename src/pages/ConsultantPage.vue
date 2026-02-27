@@ -127,12 +127,13 @@
       <!-- Create Draft Mode -->
       <ConsultantDraft
         v-if="currentMode === 'draft'"
-        v-model:loading="loading"
+        :loading="loading"
         :user-identity="userIdentity"
         :output-language="outputLanguage"
         :extracted-text="extractedText"
         :use-agent-mode="useAgentMode"
-        @insert="insertContent"
+        @insert="insertToDoc"
+        @update:loading="loading = $event"
       />
 
       <!-- Advisor Workspace -->

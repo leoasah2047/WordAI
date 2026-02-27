@@ -174,6 +174,12 @@ Please generate the content for this step and insert it into the document if app
 
         const { getAgentResponse } = await import('@/api/union')
         const { AdvisorActionSchema } = await import('@/schemas/agentSchemas')
+        const { getActiveAgentTools } = await import('@/utils/agentTools')
+        const { useAgentActivity } = await import('@/composables/useAgentActivity')
+        const { v4: uuidv4 } = await import('uuid')
+        const { addActivity, updateActivity } = useAgentActivity()
+
+        const tools = await getActiveAgentTools()
 
         await getAgentResponse({
           provider: settingForm.value.api as any,
@@ -193,6 +199,7 @@ Please generate the content for this step and insert it into the document if app
           azureDeploymentName: settingForm.value.azureDeploymentName,
 
           actionSchema: AdvisorActionSchema,
+          tools,
           errorIssue: ref(null),
           loading: ref(true),
           messages: [{ role: 'user', content: taskPrompt }],
@@ -212,10 +219,28 @@ Please generate the content for this step and insert it into the document if app
               } else if (action.type === 'highlight_critical_range') {
                 stepResponse.value = action.reason
                 generatedContent.value += `\n\n### [Highlight Needed]\n${action.text_to_highlight} (Severity: ${action.severity})\n*Reason: ${action.reason}*`
+              } else if (action.type === 'execute_tool') {
+                stepResponse.value = `Executing tool: ${action.tool_name}`
               }
             } catch (_e) {
               // Fallback
               stepResponse.value = text
+            }
+          },
+          onToolCall: (toolName, args) => {
+            const id = uuidv4()
+            addActivity({ id, name: toolName, args, status: 'pending', agent: 'Advisor' })
+          },
+          onToolResult: (toolName, result) => {
+            const pending = [...useAgentActivity().activities.value].find(
+              a => a.name === toolName && a.status === 'pending' && a.agent === 'Advisor',
+            )
+            if (pending) {
+              updateActivity(pending.id, {
+                status: 'success',
+                result,
+                duration: Date.now() - pending.timestamp,
+              })
             }
           },
         })

@@ -248,7 +248,7 @@ async function generateImage() {
     const baseUrl = settings.consultantBackendUrl || 'http://localhost:8000'
     const apiKey = settings.geminiAPIKey || ''
 
-    // 2. Call backend Image Generation API
+    // 2. Call backend Image Generation API (Nano Banana)
     const response = await fetch(`${baseUrl}/api/v1/generate-image`, {
       method: 'POST',
       headers: {
@@ -259,6 +259,7 @@ async function generateImage() {
         prompt: imagePrompt.value,
         style: selectedImageStyle.value,
         aspect_ratio: '1:1', // Default aspect ratio
+        model: settings.geminiModel || 'gemini-3.1-flash-image-preview',
       }),
     })
 

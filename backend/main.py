@@ -869,6 +869,7 @@ class OCRRequest(BaseModel):
 
 class ImageGenerationRequest(BaseModel):
     prompt: str
+    model: Optional[str] = "gemini-3.1-flash-image-preview"
     style: Optional[str] = "photorealistic"
     aspect_ratio: Optional[str] = "1:1"
 
@@ -932,66 +933,62 @@ async def generate_image(
     user: models.User = Depends(get_current_user)
 ):
     start_time = time.time()
-    logger.info("generate_image_start", prompt=data.prompt, style=data.style, user_id=user.id)
+    logger.info("generate_image_start", prompt=data.prompt, style=data.style, model=data.model, user_id=user.id)
     
     api_key = x_google_api_key or os.getenv("GOOGLE_API_KEY")
     if not api_key:
         raise HTTPException(status_code=401, detail="Google API Key required")
 
     try:
-        import google.generativeai as genai
-        genai.configure(api_key=api_key)
+        from google import genai
+        from google.genai import types
         
-        # Determine model - fallback to available Imagen model
-        # Note: 'imagen-3.0-generate-001' is the latest as of late 2024/early 2025
-        model = genai.GenerativeModel('imagen-3.0-generate-001') 
-        # Wait, google-generativeai uses different classes for Image.
-        # It's usually genai.ImageGenerationModel
+        client = genai.Client(api_key=api_key)
         
-        # Let's try dynamic import or standard pattern
-        from google.generativeai import ImageGenerationModel
-        imagen_model = ImageGenerationModel("imagen-3.0-generate-001")
+        # Using Nano Banana API (Gemini 3.1 Flash Image Preview / Gemini 3 Pro Image Preview)
+        requested_model = data.model or "gemini-3.1-flash-image-preview"
         
         # Enhance prompt with style
         full_prompt = f"{data.prompt}. Style: {data.style}. High quality, detailed."
         
-        images = imagen_model.generate_images(
+        # Call generate_images with modern SDK parameters
+        response = client.models.generate_images(
+            model=requested_model,
             prompt=full_prompt,
-            number_of_images=1,
-            aspect_ratio=data.aspect_ratio,
-            safety_filter_level="block_only_high",
-            person_generation="allow_adult"
+            config=types.GenerateImagesConfig(
+                number_of_images=1,
+                aspect_ratio=data.aspect_ratio,
+                safety_filter_level="block_only_high",
+                person_generation="allow_adult"
+            )
         )
         
-        if not images or not images.images:
+        if not response or not response.generated_images:
              raise ValueError("No images generated")
              
         # Get the first image
-        generated_image = images.images[0]
+        generated_image = response.generated_images[0]
         
-        # Convert to base64
-        # Standard way to get bytes in google-generativeai
-        img_bytes = getattr(generated_image, 'image_bytes', getattr(generated_image, '_image_bytes', None))
+        # Convert image bytes to base64
+        # The new SDK provides the image bytes directly
+        img_bytes = generated_image.image.image_bytes
         if not img_bytes:
-             # Fallback: some versions might require saving to a buffer
-             buf = io.BytesIO()
-             generated_image.save(buf)
-             img_bytes = buf.getvalue()
+             raise ValueError("Generated image contains no data")
 
-        import base64
         b64_data = base64.b64encode(img_bytes).decode('utf-8')
         mime_type = "image/png"
         
         duration = time.time() - start_time
-        logger.info("generate_image_success", duration=duration)
+        logger.info("generate_image_success", duration=duration, model=requested_model)
         
         return {
             "image_url": f"data:{mime_type};base64,{b64_data}",
-            "prompt": data.prompt
+            "prompt": data.prompt,
+            "model": requested_model
         }
 
     except ImportError:
-        logger.error("generate_image_error", error="google-generativeai not installed or incompatible")
+        logger.error("generate_image_error", error="google-genai not installed or incompatible")
         raise HTTPException(status_code=500, detail="Image generation library missing")
     except Exception as e:
         logger.error("generate_image_error", error=str(e))

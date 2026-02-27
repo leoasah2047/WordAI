@@ -4,6 +4,10 @@ Test A2A Protocol Endpoints
 Run with: pytest test_a2a.py -v
 """
 
+import os
+os.environ["DEBUG"] = "True"
+os.environ["JWT_SECRET_KEY"] = "test-secret-key-at-least-32-chars-long-12345"
+
 import pytest
 from fastapi.testclient import TestClient
 from main import app

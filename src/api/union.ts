@@ -18,7 +18,7 @@ import {
 
 const ModelCreators: Record<string, (opts: any) => BaseChatModel> = {
   official: (opts: OpenAIOptions) => {
-    const modelName = opts.model || 'gpt-5'
+    const modelName = opts.model || 'gpt-4o'
     return new ChatOpenAI({
       modelName,
       configuration: {
@@ -49,7 +49,7 @@ const ModelCreators: Record<string, (opts: any) => BaseChatModel> = {
 
   gemini: (opts: GeminiOptions) => {
     return new ChatGoogleGenerativeAI({
-      model: opts.geminiModel ?? 'gemini-3-pro-preview',
+      model: opts.geminiModel ?? 'gemini-1.5-pro',
       apiKey: opts.geminiAPIKey,
       temperature: opts.temperature ?? 0.7,
       maxOutputTokens: opts.maxTokens ?? 800,
@@ -79,7 +79,7 @@ async function executeChatFlow(model: BaseChatModel, options: ProviderOptions): 
       checkpointer,
     })
 
-    const messages = [...options.messages]
+    const messages = [...(options.messages as any)]
     if (options.nexusProfile && Object.keys(options.nexusProfile).length > 0) {
       const p = options.nexusProfile
       const instruction = `[PERSONA CONTEXT] You are assisting a ${p.domain || 'standard'} expert who prefers ${p.cognitive_style || 'professional'} style and writes with a ${p.tone || 'neutral'} tone. Focus on ${p.proficiency || 'clarity'} and mitigate any linguistic weaknesses.`
@@ -99,12 +99,12 @@ async function executeChatFlow(model: BaseChatModel, options: ProviderOptions): 
     )
 
     let fullContent = ''
-    for await (const chunk of stream) {
+    for await (const [chunk] of stream) {
       if (options.abortSignal?.aborted) {
         break
       }
 
-      const content = typeof chunk[0].content === 'string' ? chunk[0].content : ''
+      const content = typeof chunk.content === 'string' ? chunk.content : ''
       fullContent += content
       options.onStream(fullContent)
     }
@@ -133,7 +133,7 @@ async function executeChatFlow(model: BaseChatModel, options: ProviderOptions): 
 
 async function executeAgentFlow(model: BaseChatModel, options: AgentOptions): Promise<void> {
   try {
-    const messages = [...options.messages]
+    const messages = [...(options.messages as any)]
     if (options.nexusProfile && Object.keys(options.nexusProfile).length > 0) {
       const p = options.nexusProfile
       const instruction = `[PERSONA CONTEXT] You are assisting a ${p.domain || 'standard'} expert who prefers ${p.cognitive_style || 'professional'} style and writes with a ${p.tone || 'neutral'} tone. Focus on ${p.proficiency || 'clarity'} and mitigate any linguistic weaknesses.`
@@ -142,10 +142,65 @@ async function executeAgentFlow(model: BaseChatModel, options: AgentOptions): Pr
     }
 
     if (options.actionSchema) {
-      // Use structured output mode
-      const boundModel = model.withStructuredOutput(options.actionSchema)
-      const result = await boundModel.invoke(messages, { signal: options.abortSignal })
-      options.onStream(JSON.stringify(result))
+      const maxRetries = 2
+      const maxIterations = options.recursionLimit || 10
+      let iterations = 0
+      const currentMessages = [...messages]
+
+      while (iterations < maxIterations) {
+        iterations++
+        let success = false
+        let innerRetryCount = 0
+
+        while (innerRetryCount <= maxRetries && !success) {
+          try {
+            const boundModel = model.withStructuredOutput(options.actionSchema)
+            const result = (await boundModel.invoke(currentMessages, { signal: options.abortSignal })) as any
+
+            // Inform UI of this intermediate (or final) action
+            options.onStream(JSON.stringify(result))
+
+            if (result.type === 'execute_tool') {
+              const tool = options.tools?.find((t: any) => t.name === result.tool_name)
+              if (tool) {
+                options.onToolCall?.(result.tool_name, result.arguments)
+                const toolResult = await tool.invoke(result.arguments)
+                const toolResultStr = typeof toolResult === 'string' ? toolResult : JSON.stringify(toolResult)
+                options.onToolResult?.(result.tool_name, toolResultStr)
+
+                // Add to history and continue loop
+                currentMessages.push({ role: 'assistant', content: JSON.stringify(result) } as any)
+                currentMessages.push({
+                  role: 'user',
+                  content: `Tool [${result.tool_name}] returned: ${toolResultStr}\n\nPlease analyze this result and take the next step.`,
+                } as any)
+                success = true
+                break // exit inner retry, continue outer loop
+              } else {
+                throw new Error(`Tool "${result.tool_name}" not found or disabled.`)
+              }
+            } else {
+              // Final action (insert_text, no_action, etc.)
+              return
+            }
+          } catch (err: any) {
+            innerRetryCount++
+            if (innerRetryCount > maxRetries) {
+              console.error('[Agent] Structured output failed after retries:', err)
+              throw err
+            }
+            console.warn(
+              `[Agent] Validation failed, retrying (${innerRetryCount}/${maxRetries})... Error: ${err.message}`,
+            )
+            currentMessages.push({
+              role: 'user',
+              content: `Your previous response did not match the required schema or caused an error. Please fix it and try again. Error: ${err.message}`,
+            } as any)
+          }
+        }
+
+        if (!success) break
+      }
       return
     }
 

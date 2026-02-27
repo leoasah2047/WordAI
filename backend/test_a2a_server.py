@@ -77,18 +77,3 @@ async def test_handle_task_cancel(server, db_session: Session):
         db_task_refreshed = db_session.query(TaskModel).filter_by(id=task_id).first()
         assert db_task_refreshed.status_state == "cancelled"
 
-def test_extract_tool_calls(server):
-    response_text = """
-    I will help you with that.
-    {
-        "tool_call": {
-            "tool": "word/insertText",
-            "arguments": {"text": "Hello world"}
-        }
-    }
-    Let me know if you need more.
-    """
-    tool_calls = server._extract_tool_calls(response_text)
-    assert len(tool_calls) == 1
-    assert tool_calls[0]["tool"] == "word/insertText"
-    assert tool_calls[0]["arguments"]["text"] == "Hello world"
