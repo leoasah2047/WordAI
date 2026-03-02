@@ -29,7 +29,10 @@ class RAGService:
             self._init_embeddings(self.google_api_key)
 
         if self.use_hybrid:
-            self.sparse_embeddings = SparseTextEmbedding(model_name=settings.SPARSE_EMBEDDING_MODEL)
+            self.sparse_embeddings = SparseTextEmbedding(
+                model_name=settings.SPARSE_EMBEDDING_MODEL,
+                cache_dir=settings.FASTEMBED_CACHE_PATH
+            )
 
         # Initialize Qdrant Client
         # If running locally without a server, you can use path="local_qdrant"

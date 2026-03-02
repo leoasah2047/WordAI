@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     USE_HYBRID_SEARCH: bool = True
     SPARSE_EMBEDDING_MODEL: str = "prithivida/Splade_PP_en_v1"
     DENSE_EMBEDDING_DIM: int = 512
+    FASTEMBED_CACHE_PATH: str = os.getenv("FASTEMBED_CACHE_PATH", "/app/model_cache")
     
     # OAuth
     GOOGLE_CLIENT_ID: Optional[str] = None
