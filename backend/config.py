@@ -60,6 +60,9 @@ class Settings(BaseSettings):
             
             if not self.REDIS_URL:
                  logger.warning("SECURITY: REDIS_URL is missing in production. WebSockets may not sync.")
+            elif not self.REDIS_URL.startswith(("redis://", "rediss://", "memory://")):
+                 # Auto-fix missing scheme for REDIS_URL
+                 self.REDIS_URL = f"redis://{self.REDIS_URL}"
             
             for origin in self.ALLOWED_ORIGINS:
                 if "localhost" in origin or "127.0.0.1" in origin:

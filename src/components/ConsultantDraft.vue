@@ -30,19 +30,44 @@
       <div v-if="draftState !== 'result'" class="form-body">
         <div v-for="input in selectedTemplate.inputs" :key="input.key" class="form-group-row">
           <label>{{ $t(selectedTemplate.id + '_' + input.key + '_label') || input.label }}</label>
-          <input
-            v-if="input.type === 'text'"
-            v-model="formValues[input.key]"
-            :placeholder="$t(selectedTemplate.id + '_' + input.key + '_placeholder') || input.placeholder"
-            class="input-field"
-          />
-          <textarea
-            v-else
-            v-model="formValues[input.key]"
-            :placeholder="$t(selectedTemplate.id + '_' + input.key + '_placeholder') || input.placeholder"
-            class="textarea-field"
-            rows="3"
-          ></textarea>
+          <div class="input-wrapper">
+            <div
+              v-if="highlightRange && activeInputKey === input.key"
+              class="input-highlight-overlay"
+              :class="{ 'is-textarea': input.type !== 'text' }"
+            >
+              <span class="text-pre">{{ formValues[input.key].slice(0, highlightRange.start) }}</span>
+              <span class="ash-tint">{{ formValues[input.key].slice(highlightRange.start, highlightRange.end) }}</span>
+              <span class="text-post">{{ formValues[input.key].slice(highlightRange.end) }}</span>
+            </div>
+            <input
+              v-if="input.type === 'text'"
+              v-model="formValues[input.key]"
+              :placeholder="$t(selectedTemplate.id + '_' + input.key + '_placeholder') || input.placeholder"
+              class="input-field"
+              @input="e => handleFormFieldInput(e, input.key)"
+              @click="e => updateDropdownPosition(e, input.key)"
+              @keyup="e => updateDropdownPosition(e, input.key)"
+            />
+            <textarea
+              v-else
+              v-model="formValues[input.key]"
+              :placeholder="$t(selectedTemplate.id + '_' + input.key + '_placeholder') || input.placeholder"
+              class="textarea-field"
+              rows="3"
+              @input="e => handleFormFieldInput(e, input.key)"
+              @click="e => updateDropdownPosition(e, input.key)"
+              @keyup="e => updateDropdownPosition(e, input.key)"
+            ></textarea>
+            <SlashCommandDropdown
+              v-if="isDropdownVisible && activeInputKey === input.key"
+              :items="searchResults"
+              :position="dropdownPosition"
+              :active-level="activeLevel"
+              @select="handleCommandSelect"
+              @close="closeDropdown"
+            />
+          </div>
         </div>
         <button v-show="!loading" class="btn-primary generate-btn" @click="handleGenerateDraft">
           <Sparkles :size="18" />
@@ -70,6 +95,8 @@ import { useI18n } from 'vue-i18n'
 
 import { getChatResponse } from '@/api/union'
 import AppLoading from '@/components/AppLoading.vue'
+import SlashCommandDropdown from '@/components/SlashCommandDropdown.vue'
+import { useSlashCommands } from '@/composables/useSlashCommands'
 import { useAuthStore } from '@/stores/AuthStore'
 import { getIcon } from '@/utils/icons'
 import { message as messageUtil } from '@/utils/message'
@@ -93,6 +120,43 @@ const selectedTemplate = ref<WritingTemplate | null>(null)
 const draftState = ref<'input' | 'result'>('input')
 const formValues = reactive<Record<string, string>>({})
 const generatedContent = ref('')
+
+const {
+  isDropdownVisible,
+  dropdownPosition,
+  searchResults,
+  activeLevel,
+  highlightRange,
+  handleInput: handleSlashInput,
+  closeDropdown,
+} = useSlashCommands()
+
+const activeInputKey = ref<string | null>(null)
+
+function handleFormFieldInput(e: Event, key: string) {
+  const target = e.target as HTMLInputElement | HTMLTextAreaElement
+  activeInputKey.value = key
+  handleSlashInput(target.value, target.selectionStart || 0, target)
+}
+
+function updateDropdownPosition(e: Event, key: string) {
+  const target = e.target as HTMLInputElement | HTMLTextAreaElement
+  activeInputKey.value = key
+  handleSlashInput(target.value, target.selectionStart || 0, target)
+}
+
+function handleCommandSelect(item: any) {
+  if (item.id === 'documents' || item.id === 'tools' || !activeInputKey.value) return
+
+  const tag = item.type === 'tool' ? `@Tool:${item.name} ` : `@Document:${item.name} `
+  const start = highlightRange.value?.start || 0
+  const end = highlightRange.value?.end || 0
+
+  const currentVal = formValues[activeInputKey.value]
+  formValues[activeInputKey.value] = currentVal.slice(0, start) + tag + currentVal.slice(end)
+
+  closeDropdown()
+}
 
 function handleSelectTemplate(tpl: WritingTemplate) {
   selectedTemplate.value = tpl
@@ -219,8 +283,6 @@ async function handleGenerateDraft() {
 function handleInsertContent() {
   emit('insert', generatedContent.value)
 }
-
-// getIcon is now imported
 </script>
 
 <style scoped>
@@ -307,13 +369,47 @@ function handleInsertContent() {
   gap: 8px;
 }
 
+.input-wrapper {
+  position: relative;
+  width: 100%;
+}
+
 .input-field,
 .textarea-field {
+  width: 100%;
   padding: 10px;
   border: 1px solid var(--color-border);
   border-radius: 6px;
   background: var(--color-bg-primary);
   color: var(--color-text-primary);
+  position: relative;
+  z-index: 2;
+}
+
+.input-highlight-overlay {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  right: 10px;
+  bottom: 0;
+  pointer-events: none;
+  white-space: pre;
+  word-wrap: break-word;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: inherit;
+  color: transparent;
+  z-index: 1;
+}
+
+.input-highlight-overlay.is-textarea {
+  white-space: pre-wrap;
+}
+
+.ash-tint {
+  background-color: rgba(128, 128, 128, 0.15);
+  border-radius: 3px;
+  color: transparent;
 }
 
 .generate-btn {

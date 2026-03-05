@@ -32,12 +32,13 @@
           <div class="steps-container scroll-custom">
             <div
               v-for="(step, idx) in activeWorkflow.steps"
-              :key="idx"
+              :key="step.id || idx"
               class="roadmap-step"
               :class="{
                 active: currentStep === idx,
                 loading: step.status === 'loading',
                 completed: step.status === 'completed',
+                'secondary-step': step.isSecondary,
               }"
             >
               <div class="step-marker" @click="emit('update:currentStep', idx)">
@@ -74,6 +75,14 @@
                         <Sparkles :size="14" />
                         {{ $t('execute') || 'Execute' }}
                       </button>
+                      <button
+                        v-if="!step.isSecondary"
+                        class="btn-icon-xs"
+                        title="Add Sub-step"
+                        @click.stop="emit('add-sub-step', idx)"
+                      >
+                        <PlusSquare :size="12" />
+                      </button>
                       <button class="btn-icon-xs" @click.stop="emit('edit-step', idx)">
                         <Edit3 :size="12" />
                       </button>
@@ -87,18 +96,33 @@
                 <div v-if="currentStep === idx" class="step-expanded-zone">
                   <div class="instruction-edit">
                     <label>{{ $t('expertInstructions') || 'Expert Instructions' }}</label>
-                    <textarea
-                      :value="editFormData.instruction"
-                      class="step-textarea"
-                      placeholder="Add specific instructions for this step..."
-                      @input="
-                        emit('update:editFormData', {
-                          ...editFormData,
-                          instruction: ($event.target as HTMLTextAreaElement).value,
-                        })
-                      "
-                      @blur="emit('save-step-edit')"
-                    ></textarea>
+                    <div class="textarea-container">
+                      <div v-if="highlightRange" class="input-highlight-overlay">
+                        <span class="text-pre">{{ editFormData.instruction.slice(0, highlightRange.start) }}</span>
+                        <span class="ash-tint">{{
+                          editFormData.instruction.slice(highlightRange.start, highlightRange.end)
+                        }}</span>
+                        <span class="text-post">{{ editFormData.instruction.slice(highlightRange.end) }}</span>
+                      </div>
+                      <textarea
+                        ref="stepTextarea"
+                        :value="editFormData.instruction"
+                        class="step-textarea"
+                        placeholder="Add @Tool or @Document reference..."
+                        @input="handleTextAreaInput"
+                        @blur="emit('save-step-edit')"
+                        @click="updateDropdownPosition"
+                        @keyup="updateDropdownPosition"
+                      ></textarea>
+                      <SlashCommandDropdown
+                        v-if="isDropdownVisible"
+                        :items="searchResults"
+                        :position="dropdownPosition"
+                        :active-level="activeLevel"
+                        @select="handleCommandSelect"
+                        @close="closeDropdown"
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
@@ -117,11 +141,14 @@
 </template>
 
 <script setup lang="ts">
-import { ArrowLeft, ArrowRight, Check, Edit3, Plus, Sparkles, Trash2 } from 'lucide-vue-next'
+import { ArrowLeft, ArrowRight, Check, Edit3, Plus, PlusSquare, Sparkles, Trash2 } from 'lucide-vue-next'
+import { ref } from 'vue'
 
+import SlashCommandDropdown from '@/components/SlashCommandDropdown.vue'
+import { useSlashCommands } from '@/composables/useSlashCommands'
 import { getIcon } from '@/utils/icons'
 
-defineProps<{
+const props = defineProps<{
   activeWorkflow: any | null
   currentStep: number
   advisorWorkflows: any[]
@@ -139,6 +166,7 @@ const emit = defineEmits([
   'update:editFormData',
   'start-workflow',
   'add-custom-step',
+  'add-sub-step',
   'delete-step',
   'move-step',
   'edit-step',
@@ -147,6 +175,49 @@ const emit = defineEmits([
   'clear-report',
   'insert-report',
 ])
+
+const {
+  isDropdownVisible,
+  dropdownPosition,
+  searchResults,
+  activeLevel,
+  highlightRange,
+  handleInput: handleSlashInput,
+  closeDropdown,
+} = useSlashCommands()
+
+const stepTextarea = ref<HTMLTextAreaElement | null>(null)
+
+function handleTextAreaInput(e: Event) {
+  const target = e.target as HTMLTextAreaElement
+  emit('update:editFormData', {
+    ...props.editFormData,
+    instruction: target.value,
+  })
+  handleSlashInput(target.value, target.selectionStart, target)
+}
+
+function updateDropdownPosition(e: Event) {
+  const target = e.target as HTMLTextAreaElement
+  handleSlashInput(target.value, target.selectionStart, target)
+}
+
+function handleCommandSelect(item: any) {
+  if (item.id === 'documents' || item.id === 'tools') return
+
+  const tag = item.type === 'tool' ? `@Tool:${item.name} ` : `@Document:${item.name} `
+  const start = highlightRange.value?.start || 0
+  const end = highlightRange.value?.end || 0
+
+  const newInstruction =
+    props.editFormData.instruction.slice(0, start) + tag + props.editFormData.instruction.slice(end)
+
+  emit('update:editFormData', {
+    ...props.editFormData,
+    instruction: newInstruction,
+  })
+  closeDropdown()
+}
 </script>
 
 <style scoped>
@@ -433,6 +504,56 @@ const emit = defineEmits([
   line-height: 1.4;
   resize: vertical;
   color: var(--color-text-primary);
+  z-index: 2;
+  position: relative;
+}
+
+.secondary-step {
+  margin-left: 32px;
+  transform: scale(0.95);
+  transform-origin: left top;
+}
+
+.secondary-step .step-content-card {
+  background: var(--color-bg-primary);
+  border-style: dashed;
+}
+
+.roadmap-step.secondary-step::before {
+  content: '';
+  position: absolute;
+  left: -20px;
+  top: 13px;
+  width: 12px;
+  height: 2px;
+  background: var(--color-border);
+}
+
+.textarea-container {
+  position: relative;
+  width: 100%;
+}
+
+.input-highlight-overlay {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  right: 8px;
+  bottom: 0;
+  pointer-events: none;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  font-family: inherit;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  color: transparent;
+  z-index: 1;
+}
+
+.ash-tint {
+  background-color: rgba(128, 128, 128, 0.15);
+  border-radius: 3px;
+  color: transparent;
 }
 
 .btn-add-step {

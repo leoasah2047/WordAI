@@ -311,16 +311,32 @@ class A2AServer:
             max_iterations = 5
             context_findings = []
             
+            import re
+            
             # Extract user message
             user_message = next((msg for msg in reversed(task.history) if msg.role == Role.USER), None)
             user_text = user_message.content if user_message and isinstance(user_message.content, str) else ""
 
+            # Extract requested documents and tools
+            requested_docs = [m.group(1) for m in re.finditer(r'@Document:([^\s]+)', user_text)]
+            requested_tools = [m.group(1) for m in re.finditer(r'@Tool:([^\s]+)', user_text)]
+            
+            clean_user_text = re.sub(r'@[A-Za-z]+:[^\s]+', '', user_text).strip()
+            if not clean_user_text:
+                clean_user_text = user_text
+
             # Phase 2: RAG Context
             await self._update_task_status(task.id, db, TaskState.IN_PROGRESS, "Consulting knowledge base", 0.2)
             try:
-                docs = await rag_service.query(user_text, top_k=4)
+                filters = {"sources": requested_docs} if requested_docs else None
+                docs = await rag_service.query(clean_user_text, filters=filters, top_k=4)
                 if docs:
                     context_findings.append(f"Knowledge Base: {[doc.page_content for doc in docs]}")
+                elif requested_docs:
+                    # Fallback if the specifically requested documents yielded no results
+                    fallback_docs = await rag_service.query(clean_user_text, top_k=4)
+                    if fallback_docs:
+                        context_findings.append(f"Knowledge Base (Fallback, specific docs not found): {[doc.page_content for doc in fallback_docs]}")
             except Exception as e:
                 logger.warning(f"RAG failed: {e}")
 
@@ -330,9 +346,13 @@ class A2AServer:
                 await self._update_task_status(task.id, db, TaskState.IN_PROGRESS, f"Agent reasoning (Round {iteration})", 0.3 + (iteration * 0.1))
                 
                 # Build context-aware prompt
+                system_tools_instruction = ""
+                if requested_tools:
+                    system_tools_instruction = f"\nUSER REQUESTED TOOLS: The user explicitly requested to use the following tools: {', '.join(requested_tools)}. Prioritize using these if applicable to the task.\n"
+
                 system_msg = f"""Expert Word AI Agent. Mode: {mode}.
 Current Context Findings: {json.dumps(context_findings)}
-Available Tools: {json.dumps(tool_registry.get_tools_schema())}
+Available Tools: {json.dumps(tool_registry.get_tools_schema())}{system_tools_instruction}
 """
                 prompt = ChatPromptTemplate.from_messages([
                     ("system", system_msg),

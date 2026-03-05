@@ -17,15 +17,34 @@
 
         <div class="form-group">
           <label>{{ $t('taskDescription') || 'What should the agent do?' }}</label>
-          <textarea
-            v-model="taskDescription"
-            class="textarea-input"
-            :placeholder="
-              $t('taskPlaceholder') ||
-              'e.g., Rewrite all paragraphs in active voice and ensure Oxford commas are used consistently...'
-            "
-            rows="4"
-          ></textarea>
+          <div class="textarea-wrapper">
+            <div v-if="highlightRange" class="input-highlight-overlay">
+              <span class="text-pre">{{ taskDescription.slice(0, highlightRange.start) }}</span>
+              <span class="ash-tint">{{ taskDescription.slice(highlightRange.start, highlightRange.end) }}</span>
+              <span class="text-post">{{ taskDescription.slice(highlightRange.end) }}</span>
+            </div>
+            <textarea
+              ref="taskTextarea"
+              v-model="taskDescription"
+              class="textarea-input"
+              :placeholder="
+                $t('taskPlaceholder') ||
+                'e.g., Rewrite all paragraphs in active voice and ensure Oxford commas are used consistently...'
+              "
+              rows="4"
+              @input="handleTaskInput"
+              @click="updateDropdownPosition"
+              @keyup="updateDropdownPosition"
+            ></textarea>
+            <SlashCommandDropdown
+              v-if="isDropdownVisible"
+              :items="searchResults"
+              :position="dropdownPosition"
+              :active-level="activeLevel"
+              @select="handleCommandSelect"
+              @close="closeDropdown"
+            />
+          </div>
         </div>
 
         <div class="options-group">
@@ -175,6 +194,8 @@ import { Bot, Brain, Check, CheckCircle2, Circle, Loader, Play, Plus, ShieldChec
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import SlashCommandDropdown from '@/components/SlashCommandDropdown.vue'
+import { useSlashCommands } from '@/composables/useSlashCommands'
 import { orchestrator } from '@/utils/agentOrchestrator'
 import { message as messageUtil } from '@/utils/message'
 
@@ -186,6 +207,39 @@ const enableReviewLoop = ref(true)
 const rememberPreferences = ref(true)
 const executing = ref(false)
 const showAddPreferenceDialog = ref(false)
+
+const {
+  isDropdownVisible,
+  dropdownPosition,
+  searchResults,
+  activeLevel,
+  highlightRange,
+  handleInput: handleSlashInput,
+  closeDropdown,
+} = useSlashCommands()
+
+const taskTextarea = ref<HTMLTextAreaElement | null>(null)
+
+function handleTaskInput(e: Event) {
+  const target = e.target as HTMLTextAreaElement
+  handleSlashInput(target.value, target.selectionStart || 0, target)
+}
+
+function updateDropdownPosition(e: Event) {
+  const target = e.target as HTMLTextAreaElement
+  handleSlashInput(target.value, target.selectionStart || 0, target)
+}
+
+function handleCommandSelect(item: any) {
+  if (item.id === 'documents' || item.id === 'tools') return
+
+  const tag = item.type === 'tool' ? `@Tool:${item.name} ` : `@Document:${item.name} `
+  const start = highlightRange.value?.start || 0
+  const end = highlightRange.value?.end || 0
+
+  taskDescription.value = taskDescription.value.slice(0, start) + tag + taskDescription.value.slice(end)
+  closeDropdown()
+}
 
 interface ExecutionStep {
   title: string
@@ -257,7 +311,6 @@ async function executeTask() {
   reviewResults.value = null
 
   try {
-    // 1. Prepare context from learned preferences and UI options
     const context = {
       function_area: 'General',
       enable_review: enableReviewLoop.value,
@@ -266,20 +319,15 @@ async function executeTask() {
       language: t('currentLanguage') || 'English',
     }
 
-    // 2. Execute real agent orchestration
     const result: any = await orchestrator.execute(taskDescription.value, [], context)
 
-    // 3. Update UI steps
     executionStatus.value.steps[0].complete = true
     executionStatus.value.steps[0].active = false
     executionStatus.value.steps[0].detail = result.message || t('taskCompleted') || 'Task completed'
 
-    // 4. Handle review results if the agent provided them or performed self-correction
-    // In production, the backend might return a structured review object
     if (result.metadata?.review) {
       reviewResults.value = result.metadata.review
     } else if (enableReviewLoop.value) {
-      // If we enabled review but didn't get a structured metadata, we can extract or synthesize a summary
       reviewResults.value = {
         changesApplied: result.tool_calls?.length || 0,
         issuesFixed: Math.floor((result.tool_calls?.length || 0) * 0.8),
@@ -295,7 +343,6 @@ async function executeTask() {
       }
     }
 
-    // 5. Update learned preferences if new patterns detected
     if (rememberPreferences.value && result.metadata?.learned_preferences) {
       result.metadata.learned_preferences.forEach((pref: Preference) => {
         const exists = learnedPreferences.value.some(p => p.category === pref.category && p.value === pref.value)
@@ -322,14 +369,7 @@ async function executeTask() {
 // Apply review changes to document
 async function applyReviewChanges() {
   try {
-    // In production, the agent might have already applied changes via tools.
-    // This "Apply" button can serve as a final "Accept All Tracked Changes" or
-    // simply a UI confirmation that clears the results.
     await Word.run(async context => {
-      // If track changes were enabled by the agent, we can accept them here
-      // context.document.changeTrackingMode = 'Off'; // optional
-
-      // For now, we'll mark the completion in the document
       const body = context.document.body
       body.insertParagraph(`[Agent] Review completed and verified.`, Word.InsertLocation.end)
       await context.sync()
@@ -361,7 +401,6 @@ function removePreference(index: number) {
   messageUtil.success(t('preferenceRemoved') || 'Preference removed')
 }
 
-// Load preferences on mount
 loadPreferences()
 </script>
 
@@ -407,7 +446,6 @@ loadPreferences()
     transform 0.3s ease,
     box-shadow 0.3s ease;
   backdrop-filter: blur(10px);
-  backdrop-filter: blur(10px);
 }
 
 .card:hover {
@@ -443,6 +481,11 @@ loadPreferences()
   color: var(--color-text-secondary);
 }
 
+.textarea-wrapper {
+  position: relative;
+  width: 100%;
+}
+
 .textarea-input {
   border: 1px solid var(--color-border);
   border-radius: 8px;
@@ -455,10 +498,34 @@ loadPreferences()
   outline: none;
   resize: vertical;
   transition: border-color 0.2s;
+  z-index: 2;
+  position: relative;
 }
 
 .textarea-input:focus {
   border-color: var(--color-primary);
+}
+
+.input-highlight-overlay {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  bottom: 0;
+  pointer-events: none;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  font-family: inherit;
+  font-size: 0.9rem;
+  line-height: inherit;
+  color: transparent;
+  z-index: 1;
+}
+
+.ash-tint {
+  background-color: rgba(128, 128, 128, 0.15);
+  border-radius: 3px;
+  color: transparent;
 }
 
 .text-input,
@@ -799,22 +866,16 @@ loadPreferences()
 
 .dialog-content h3 {
   margin-bottom: 20px;
-  font-size: 1.2rem;
-  font-weight: 600;
-  color: var(--color-text-primary);
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--color-primary);
 }
 
 .dialog-actions {
   display: flex;
-  gap: 12px;
   justify-content: flex-end;
-  margin-top: 20px;
-}
-
-.dialog-actions .btn-secondary,
-.dialog-actions .btn-primary {
-  padding: 10px 20px;
-  width: auto;
+  margin-top: 24px;
+  gap: 12px;
 }
 
 .spinner {

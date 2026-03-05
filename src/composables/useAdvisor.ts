@@ -6,9 +6,13 @@ import { message as messageUtil } from '@/utils/message'
 import useSettingForm from '@/utils/settingForm'
 
 export interface WorkflowStep {
+  id: string
   title: string
   instruction: string
   status?: 'idle' | 'loading' | 'completed' | 'error'
+  isSecondary?: boolean
+  parentId?: string
+  result?: string
 }
 
 export interface AdvisorWorkflow {
@@ -60,11 +64,28 @@ export function useAdvisor(
   function addCustomStep() {
     if (activeWorkflow.value) {
       activeWorkflow.value.steps.push({
+        id: Math.random().toString(36).substr(2, 9),
         title: 'New Step',
         instruction: 'Enter expert instructions here...',
         status: 'idle',
       })
       currentStep.value = activeWorkflow.value.steps.length - 1
+    }
+  }
+
+  function addSubStep(parentIndex: number) {
+    if (activeWorkflow.value) {
+      const parent = activeWorkflow.value.steps[parentIndex]
+      const newStep: WorkflowStep = {
+        id: Math.random().toString(36).substr(2, 9),
+        title: `Sub-step for ${parent.title}`,
+        instruction: `Perform this sub-task based on: ${parent.instruction}`,
+        status: 'idle',
+        isSecondary: true,
+        parentId: parent.id,
+      }
+      activeWorkflow.value.steps.splice(parentIndex + 1, 0, newStep)
+      currentStep.value = parentIndex + 1
     }
   }
 
@@ -159,9 +180,28 @@ export function useAdvisor(
 
     try {
       if (useAgentMode.value) {
+        let hierarchicalContext = ''
+        if (step.isSecondary && step.parentId) {
+          const parent = activeWorkflow.value.steps.find(s => s.id === step.parentId)
+          if (parent) {
+            hierarchicalContext = `\nParent Step Context: ${parent.title}\nParent Instruction: ${parent.instruction}\nParent Result: ${parent.result || 'Pending'}`
+          }
+        }
+
+        // Get results of preceding steps
+        const precedingContext = activeWorkflow.value.steps
+          .slice(0, index)
+          .filter(s => s.status === 'completed')
+          .map(s => `Step: ${s.title}\nResult: ${s.result}`)
+          .join('\n---\n')
+
         const taskPrompt = `Execute this step of the expert workflow:
 Title: ${step.title}
 Instructions: ${step.instruction}
+${hierarchicalContext}
+
+Preceding Steps Results:
+${precedingContext}
 
 Context:
 - Output Language: ${outputLanguage.value}
@@ -206,7 +246,6 @@ Please generate the content for this step and insert it into the document if app
           onStream: (text: string) => {
             try {
               const action = JSON.parse(text)
-              // Simple handling of action matching schema
               if (action.type === 'proceed_to_next_step') {
                 stepResponse.value = action.step_summary
                 generatedContent.value += `\n\n### [Processed: ${step.title}]\n${action.step_summary}\n*Reasoning: ${action.agent_reasoning}*`
@@ -222,9 +261,10 @@ Please generate the content for this step and insert it into the document if app
               } else if (action.type === 'execute_tool') {
                 stepResponse.value = `Executing tool: ${action.tool_name}`
               }
+              step.result = stepResponse.value
             } catch (_e) {
-              // Fallback
               stepResponse.value = text
+              step.result = text
             }
           },
           onToolCall: (toolName, args) => {
@@ -278,6 +318,7 @@ Context: ${sourceOfTruth.value.substring(0, 4000)}`
         })
         generatedContent.value += `\n\n### ${step.title}\n${stepResponse.value}`
         step.status = 'completed'
+        step.result = stepResponse.value
         await insertToDoc(stepResponse.value)
       }
     } catch (error) {
@@ -323,6 +364,7 @@ Context: ${sourceOfTruth.value.substring(0, 4000)}`
     brandBookFileRef,
     startWorkflow,
     addCustomStep,
+    addSubStep,
     deleteStep,
     moveStep,
     editStep,

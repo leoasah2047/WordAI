@@ -740,13 +740,38 @@ async def query_consultant(
 ):
     start_time = time.time()
     try:
-        # 1. Retrieve Context from Vector DB
-        # If the user provided specific source files, we filter by them
-        source_filter = getattr(data, 'sources', None)
+        import re
         
+        # Determine user preferences
+        nexus_profile = {}
+        user_identity = "Professional"
+        user_defaults = {}
+        if user and user.profile:
+            nexus_profile = user.profile.nexus_profile or {}
+            user_identity = user.profile.identity or "Professional"
+            user_defaults = user.profile.default_context or {}
+            
+        api_key = x_google_api_key
+        if not api_key and user and user.profile and user.profile.gemini_api_key:
+            api_key = user.profile.gemini_api_key
+        effective_api_key = api_key or settings.GOOGLE_API_KEY
+        
+        # 1. Retrieve Context from Vector DB
+        source_filter = getattr(data, 'sources', None) or []
+        
+        # Extract requested documents and tools
+        requested_docs = [m.group(1) for m in re.finditer(r'@Document:([^\s]+)', data.query)]
+        requested_tools = [m.group(1) for m in re.finditer(r'@Tool:([^\s]+)', data.query)]
+            
+        clean_query = re.sub(r'@[A-Za-z]+:[^\s]+', '', data.query).strip() or data.query
+            
+        if requested_docs:
+            source_filter.extend(requested_docs)
+            source_filter = list(set(source_filter))
+            
         # Search for Knowledge using the query
         context_docs = await rag_service.query(
-            data.query, 
+            clean_query, 
             filters={"sources": source_filter} if source_filter else None, 
             top_k=data.top_k
         )
@@ -766,13 +791,14 @@ async def query_consultant(
     
         
         # 2. Construct Super-Prompt
-        effective_api_key = api_key or settings.GOOGLE_API_KEY
-    
-        # Hidden Instruction from Nexus
         hidden_instruction = ""
         if nexus_profile:
             hidden_instruction = f'You are assisting a {nexus_profile.get("domain", "standard")} expert who prefers {nexus_profile.get("cognitive_style", "professional")} style and writes with a {nexus_profile.get("tone", "neutral")} tone. Focus on {nexus_profile.get("proficiency", "clarity")} and mitigate any linguistic weaknesses.'
     
+        tools_instruction = ""
+        if requested_tools:
+            tools_instruction = f"\n# REQUESTED TOOLS\nThe user explicitly requested to focus on the following tools/methods: {', '.join(requested_tools)}. Keep this in mind and suggest their usage if applicable.\n"
+
         system_template = f"""{hidden_instruction}
         
         You are an expert World-Class Consultant specializing in your field.
@@ -780,7 +806,7 @@ async def query_consultant(
         # USER CONTEXT
         User Identity: {{user_identity}}
         User Preferences: {{user_defaults}}
-        
+        {tools_instruction}
         # INSTRUCTIONS
         Your goal is to answer the user's query using the provided context.
         If multiple sources are provided in the reference material, perform a "Cross-Document Synthesis":
@@ -825,16 +851,9 @@ async def query_consultant(
         chain = prompt | llm | StrOutputParser()
         
         response_text = await chain.ainvoke({
-            "function_area": data.function_area,
             "knowledge_context": knowledge_context,
-            "style_author": data.style_author,
-            "style_instruction": style_instruction,
-            "style_context": style_context,
             "user_query": data.query,
             "tender_context": data.tender_context,
-            "language": data.language,
-            "has_images": data.has_images,
-            "available_images": data.available_images,
             "user_identity": user_identity,
             "user_defaults": str(user_defaults)
         })

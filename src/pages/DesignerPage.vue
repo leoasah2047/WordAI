@@ -53,12 +53,31 @@
 
         <div class="form-group">
           <label>{{ $t('imagePrompt') || 'Image Description' }}</label>
-          <textarea
-            v-model="imagePrompt"
-            class="textarea-input"
-            :placeholder="$t('imagePromptPlaceholder') || 'Describe the image you want to generate...'"
-            rows="3"
-          ></textarea>
+          <div class="textarea-wrapper">
+            <div v-if="highlightRange" class="input-highlight-overlay">
+              <span class="text-pre">{{ imagePrompt.slice(0, highlightRange.start) }}</span>
+              <span class="ash-tint">{{ imagePrompt.slice(highlightRange.start, highlightRange.end) }}</span>
+              <span class="text-post">{{ imagePrompt.slice(highlightRange.end) }}</span>
+            </div>
+            <textarea
+              ref="promptTextarea"
+              v-model="imagePrompt"
+              class="textarea-input"
+              :placeholder="$t('imagePromptPlaceholder') || 'Describe the image you want to generate...'"
+              rows="3"
+              @input="handlePromptInput"
+              @click="updateDropdownPosition"
+              @keyup="updateDropdownPosition"
+            ></textarea>
+            <SlashCommandDropdown
+              v-if="isDropdownVisible"
+              :items="searchResults"
+              :position="dropdownPosition"
+              :active-level="activeLevel"
+              @select="handleCommandSelect"
+              @close="closeDropdown"
+            />
+          </div>
         </div>
 
         <div class="form-group">
@@ -152,6 +171,8 @@ import { BarChart3, Download, ImageIcon, Palette, PlusCircle, Search, Sparkles, 
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import SlashCommandDropdown from '@/components/SlashCommandDropdown.vue'
+import { useSlashCommands } from '@/composables/useSlashCommands'
 import { message as messageUtil } from '@/utils/message'
 
 const { t } = useI18n()
@@ -163,6 +184,39 @@ const scanningTables = ref(false)
 const imagePrompt = ref('')
 const selectedImageStyle = ref('professional')
 const generatedImageUrl = ref('')
+
+const {
+  isDropdownVisible,
+  dropdownPosition,
+  searchResults,
+  activeLevel,
+  highlightRange,
+  handleInput: handleSlashInput,
+  closeDropdown,
+} = useSlashCommands()
+
+const promptTextarea = ref<HTMLTextAreaElement | null>(null)
+
+function handlePromptInput(e: Event) {
+  const target = e.target as HTMLTextAreaElement
+  handleSlashInput(target.value, target.selectionStart || 0, target)
+}
+
+function updateDropdownPosition(e: Event) {
+  const target = e.target as HTMLTextAreaElement
+  handleSlashInput(target.value, target.selectionStart || 0, target)
+}
+
+function handleCommandSelect(item: any) {
+  if (item.id === 'documents' || item.id === 'tools') return
+
+  const tag = item.type === 'tool' ? `@Tool:${item.name} ` : `@Document:${item.name} `
+  const start = highlightRange.value?.start || 0
+  const end = highlightRange.value?.end || 0
+
+  imagePrompt.value = imagePrompt.value.slice(0, start) + tag + imagePrompt.value.slice(end)
+  closeDropdown()
+}
 
 interface Theme {
   primaryColor: string
@@ -205,25 +259,22 @@ async function extractTheme() {
       firstParagraph.load('font/color, font/name')
       await context.sync()
 
-      // Use actual document properties if available
       const docColor = firstParagraph.font.color || '#0969da'
       const docFont = firstParagraph.font.name || 'Segoe UI'
 
-      // Map font to vibe
       let vibe = 'Professional & Clean'
       if (docFont.includes('Serif') || docFont.includes('Times')) vibe = 'Classic & Formal'
       if (docFont.includes('Arial') || docFont.includes('Helvetica')) vibe = 'Modern & Minimalist'
 
       theme.value = {
         primaryColor: docColor === '#000000' ? '#0969da' : docColor,
-        accentColor: docColor, // Standard accent
+        accentColor: docColor,
         vibe,
       }
 
       messageUtil.success(t('themeExtracted') || 'Document theme extracted successfully')
     })
   } catch (_err) {
-    // Fallback for empty documents
     theme.value = {
       primaryColor: '#0969da',
       accentColor: '#6366f1',
@@ -243,12 +294,10 @@ async function generateImage() {
   try {
     messageUtil.info(t('generatingImage') || 'Generating image...')
 
-    // 1. Get backend settings
     const settings = (window as any).msWordSettings || {}
     const baseUrl = settings.consultantBackendUrl || 'http://localhost:8000'
     const apiKey = settings.geminiAPIKey || ''
 
-    // 2. Call backend Image Generation API (Nano Banana)
     const response = await fetch(`${baseUrl}/api/v1/generate-image`, {
       method: 'POST',
       headers: {
@@ -258,7 +307,7 @@ async function generateImage() {
       body: JSON.stringify({
         prompt: imagePrompt.value,
         style: selectedImageStyle.value,
-        aspect_ratio: '1:1', // Default aspect ratio
+        aspect_ratio: '1:1',
         model: settings.geminiModel || 'gemini-3.1-flash-image-preview',
       }),
     })
@@ -289,18 +338,11 @@ async function insertImageToDoc() {
   try {
     await Word.run(async context => {
       const selection = context.document.getSelection()
-
-      // 1. Extract base64 content from data URL
       const base64Data = generatedImageUrl.value.split(',')[1]
-
-      // 2. Insert as Inline Picture
       const picture = selection.insertInlinePictureFromBase64(base64Data, Word.InsertLocation.replace)
-
-      // 3. Set basic properties
       picture.altTextDescription = imagePrompt.value
       picture.lockAspectRatio = true
-      picture.width = 400 // Default width in points
-
+      picture.width = 400
       await context.sync()
     })
     messageUtil.success(t('imageInserted') || 'Image inserted successfully')
@@ -347,10 +389,8 @@ async function scanTablesForCharts() {
 
 // Suggest chart type based on table data
 function suggestChart(table: TableInfo) {
-  // Enhanced logic based on data patterns
   let chartType = 'Column Chart'
   let reasoning = 'Best for comparing categorical values side-by-side.'
-
   const isTimeBased = table.data[0]?.some(cell => /year|month|date|day|q[1-4]|202[0-9]/i.test(cell.toString()))
 
   if (isTimeBased) {
@@ -374,21 +414,17 @@ function suggestChart(table: TableInfo) {
 // Create chart in document
 async function createChart() {
   if (!chartSuggestion.value) return
-
   try {
     await Word.run(async context => {
       const selection = context.document.getSelection()
       const chartInfo = chartSuggestion.value!
       const primaryColor = theme.value?.primaryColor || '#0969da'
-
-      // Use a structured content control to represent the AI-generated chart
       const cc = selection.insertContentControl()
       cc.title = `AI ${chartInfo.type}`
       cc.tag = 'AI_CHART'
       cc.appearance = 'BoundingBox'
       cc.color = primaryColor
 
-      // Insert a descriptive header with style
       const header = cc.insertParagraph(`[AI Generated Visualization: ${chartInfo.type}]`, Word.InsertLocation.start)
       header.font.bold = true
       header.font.color = primaryColor
@@ -401,10 +437,8 @@ async function createChart() {
       detail.font.italic = true
       detail.font.size = 10
 
-      // Reserve space for the visual
       const space = detail.insertParagraph('\n\n\n\n[Chart Content Area]\n\n\n\n', Word.InsertLocation.after)
       space.alignment = Word.Alignment.centered
-
       await context.sync()
     })
     messageUtil.success(t('chartCreated') || 'Chart visualization area created')
@@ -455,7 +489,6 @@ async function createChart() {
   transition:
     transform 0.3s ease,
     box-shadow 0.3s ease;
-  backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
 }
 
@@ -602,6 +635,11 @@ async function createChart() {
   color: var(--color-text-secondary);
 }
 
+.textarea-wrapper {
+  position: relative;
+  width: 100%;
+}
+
 .textarea-input {
   border: 1px solid var(--color-border);
   border-radius: 8px;
@@ -614,10 +652,34 @@ async function createChart() {
   outline: none;
   resize: vertical;
   transition: border-color 0.2s;
+  z-index: 2;
+  position: relative;
 }
 
 .textarea-input:focus {
   border-color: var(--color-primary);
+}
+
+.input-highlight-overlay {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  bottom: 0;
+  pointer-events: none;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  font-family: inherit;
+  font-size: 0.9rem;
+  line-height: inherit;
+  color: transparent;
+  z-index: 1;
+}
+
+.ash-tint {
+  background-color: rgba(128, 128, 128, 0.15);
+  border-radius: 3px;
+  color: transparent;
 }
 
 .style-chips {

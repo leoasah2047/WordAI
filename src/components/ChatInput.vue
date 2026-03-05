@@ -10,6 +10,11 @@
 
     <!-- Main Input Box -->
     <div class="input-box-container">
+      <div v-if="highlightRange" class="input-highlight-overlay">
+        <span class="text-pre">{{ modelValue.slice(0, highlightRange.start) }}</span>
+        <span class="ash-tint">{{ modelValue.slice(highlightRange.start, highlightRange.end) }}</span>
+        <span class="text-post">{{ modelValue.slice(highlightRange.end) }}</span>
+      </div>
       <textarea
         ref="inputTextarea"
         v-model="modelValue"
@@ -19,6 +24,8 @@
         :disabled="loading"
         @keydown.enter.exact.prevent="handleEnter"
         @input="handleInput"
+        @click="updateDropdownPosition"
+        @keyup="updateDropdownPosition"
       />
 
       <!-- Voice Input -->
@@ -30,22 +37,15 @@
         @update:model-value="handleVoiceUpdate"
       />
 
-      <!-- File Search Dropdown -->
-      <div v-if="showFileSearch" class="file-search-dropdown glass-blur">
-        <div v-if="fileSearchLoading" class="file-item loading">
-          <AppLoading :text="$t('searching') || 'Searching files...'" />
-        </div>
-        <div v-else-if="filteredFiles.length === 0" class="file-item empty">
-          <span>{{ $t('noFilesFound') || 'No files found' }}</span>
-        </div>
-        <div v-for="file in filteredFiles" v-else :key="file.id" class="file-item" @click="selectFile(file)">
-          <FileText :size="14" />
-          <div class="file-info">
-            <span class="file-name">{{ file.name }}</span>
-            <span class="file-provider">{{ file.provider }}</span>
-          </div>
-        </div>
-      </div>
+      <!-- Slash Command Dropdown -->
+      <SlashCommandDropdown
+        v-if="isDropdownVisible"
+        :items="searchResults"
+        :position="dropdownPosition"
+        :active-level="activeLevel"
+        @select="handleCommandSelect"
+        @close="closeDropdown"
+      />
 
       <!-- Action Row -->
       <div class="input-actions-row">
@@ -77,21 +77,21 @@
 </template>
 
 <script setup lang="ts">
-import { FileText, Send, Sparkles, Square } from 'lucide-vue-next'
-import { computed, onMounted, ref, watch } from 'vue'
+import { Send, Sparkles, Square } from 'lucide-vue-next'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import AppLoading from '@/components/AppLoading.vue'
+import SlashCommandDropdown from '@/components/SlashCommandDropdown.vue'
 import VoiceInput from '@/components/VoiceInput.vue'
+import { useSlashCommands } from '@/composables/useSlashCommands'
 import {
-  type DmsFile,
   downloadFile,
   extractFileContent,
   getAccessToken,
   initTokenClient,
   loadGoogleApi,
 } from '@/utils/fileProcessing'
-import { getDmsConfigFromSettings, searchFiles } from '@/utils/homeFileSearch'
+import { getDmsConfigFromSettings } from '@/utils/homeFileSearch'
 import { message as messageUtil } from '@/utils/message'
 import useSettingForm from '@/utils/settingForm'
 
@@ -114,10 +114,15 @@ const { t } = useI18n()
 const settingForm = useSettingForm()
 const inputTextarea = ref<HTMLTextAreaElement | null>(null)
 
-// File Search State
-const showFileSearch = ref(false)
-const filteredFiles = ref<DmsFile[]>([])
-const fileSearchLoading = ref(false)
+const {
+  isDropdownVisible,
+  dropdownPosition,
+  searchResults,
+  activeLevel,
+  highlightRange,
+  handleInput: handleSlashInput,
+  closeDropdown,
+} = useSlashCommands()
 
 const modelValue = computed({
   get: () => props.modelValue,
@@ -126,40 +131,33 @@ const modelValue = computed({
 
 function handleInput(e: Event) {
   const target = e.target as HTMLTextAreaElement
-  const val = target.value
   adjustHeight()
+  handleSlashInput(target.value, target.selectionStart, target)
+}
 
-  // Slash command trigger
-  if (val.trim() === '/') {
-    showFileSearch.value = true
-    triggerFileSearch('')
-  } else if (showFileSearch.value && val.includes('/')) {
-    const query = val.split('/').pop() || ''
-    triggerFileSearch(query)
-  } else {
-    showFileSearch.value = false
+function updateDropdownPosition(e: Event) {
+  const target = e.target as HTMLTextAreaElement
+  handleSlashInput(target.value, target.selectionStart, target)
+}
+
+async function handleCommandSelect(item: any) {
+  if (item.id === 'documents' || item.id === 'tools') {
+    return
+  }
+
+  const tag = item.type === 'tool' ? `@Tool:${item.name} ` : `@Document:${item.name} `
+  const start = highlightRange.value?.start || 0
+  const end = highlightRange.value?.end || 0
+
+  modelValue.value = modelValue.value.slice(0, start) + tag + modelValue.value.slice(end)
+  closeDropdown()
+
+  if (item.type === 'document') {
+    await selectFile(item)
   }
 }
 
-async function triggerFileSearch(query: string) {
-  fileSearchLoading.value = true
-  try {
-    const config = getDmsConfigFromSettings(settingForm.value)
-    filteredFiles.value = await searchFiles(query, config)
-  } catch (error) {
-    console.error('File search failed:', error)
-  } finally {
-    fileSearchLoading.value = false
-  }
-}
-
-async function selectFile(file: DmsFile) {
-  showFileSearch.value = false
-  // Remove the slash command from input
-  const parts = modelValue.value.split('/')
-  parts.pop()
-  modelValue.value = parts.join('/').trim()
-
+async function selectFile(file: any) {
   messageUtil.info(t('extractingFile', { name: file.name }) || `Extracting ${file.name}...`)
 
   try {
@@ -189,10 +187,6 @@ function handleVoiceUpdate(val: string) {
 }
 
 function handleEnter() {
-  if (showFileSearch.value && filteredFiles.value.length > 0) {
-    selectFile(filteredFiles.value[0])
-    return
-  }
   handleSend()
 }
 
@@ -248,6 +242,30 @@ watch(
   padding: 0;
   margin-bottom: 8px;
   color: var(--color-text-primary);
+  z-index: 2;
+  position: relative;
+}
+
+.input-highlight-overlay {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  bottom: 0;
+  pointer-events: none;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  font-family: inherit;
+  font-size: 1em;
+  line-height: inherit;
+  color: transparent;
+  z-index: 1;
+}
+
+.ash-tint {
+  background-color: rgba(128, 128, 128, 0.15);
+  border-radius: 3px;
+  color: transparent;
 }
 
 .voice-input-control {
@@ -299,50 +317,6 @@ watch(
   margin-top: 8px;
   font-size: 0.85em;
   color: var(--color-text-secondary);
-}
-
-.file-search-dropdown {
-  position: absolute;
-  bottom: 100%;
-  left: 0;
-  background-color: var(--glass-bg);
-  border: 1px solid var(--glass-border);
-  border-radius: 8px;
-  box-shadow: var(--glass-shadow);
-  max-height: 200px;
-  overflow-y: auto;
-  width: 100%;
-  z-index: 50;
-  margin-bottom: 8px;
-}
-
-.file-item {
-  padding: 10px 14px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  cursor: pointer;
-  transition: background-color 0.2s;
-}
-
-.file-item:hover {
-  background-color: var(--color-bg-hover);
-}
-
-.file-info {
-  display: flex;
-  flex-direction: column;
-}
-
-.file-name {
-  font-size: 0.9em;
-  font-weight: 500;
-}
-
-.file-provider {
-  font-size: 0.75em;
-  color: var(--color-text-secondary);
-  text-transform: uppercase;
 }
 
 .predictive-spark-wrapper {
