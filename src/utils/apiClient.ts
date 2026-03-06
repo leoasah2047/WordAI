@@ -13,7 +13,10 @@ async function fetchWithRetry(url: string, config: RequestConfig = {}): Promise<
   const { retries = DEFAULT_RETRIES, retryDelay = DEFAULT_DELAY, ...init } = config
 
   try {
-    const response = await fetch(url, init)
+    const response = await fetch(url, {
+      ...init,
+      credentials: 'include',
+    })
 
     // Retry on 5xx errors or 429 (Too Many Requests)
     if (!response.ok && (response.status >= 500 || response.status === 429)) {
@@ -38,7 +41,10 @@ class ApiClient {
   private get baseUrl() {
     const settings = useSettingForm()
     // Ensure no trailing slash
-    const base = (settings.value.consultantBackendUrl || 'http://localhost:8000').replace(/\/$/, '')
+    const base = (settings.value.consultantBackendUrl || 'https://wordai-production-fa22.up.railway.app').replace(
+      /\/$/,
+      '',
+    )
     return `${base}/api/v1`
   }
 

@@ -1,9 +1,9 @@
 import { generateCodeChallenge, generateCodeVerifier } from '@/utils/pkce'
 
 // Placeholders - in production these should be in .env
-const GOOGLE_CLIENT_ID = 'YOUR_GOOGLE_CLIENT_ID'
-const MS_CLIENT_ID = 'YOUR_MS_CLIENT_ID'
-const API_BASE_URL = 'http://localhost:8000'
+const GOOGLE_CLIENT_ID = '591959427519-ahul5uf85pg5sntkg82tl9kgc09rsn4a.apps.googleusercontent.com'
+const MS_CLIENT_ID = '8b2a7bd6-dd11-40ef-8711-6680d3221ea2'
+const API_BASE_URL = 'https://wordai-production-fa22.up.railway.app'
 
 export const AUTH_CONFIG = {
   google: {
@@ -56,6 +56,7 @@ export async function handleAuthCallback(code: string, state: string) {
   const response = await fetch(`${API_BASE_URL}/auth/${provider}/callback`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
     body: JSON.stringify({
       code,
       code_verifier: verifier,
@@ -77,13 +78,18 @@ export async function handleAuthCallback(code: string, state: string) {
 }
 
 export async function getMe() {
-  const response = await fetch(`${API_BASE_URL}/auth/me`)
+  const response = await fetch(`${API_BASE_URL}/auth/me`, {
+    credentials: 'include',
+  })
   if (!response.ok) return null
   return await response.json()
 }
 
 export async function logout() {
-  await fetch(`${API_BASE_URL}/auth/logout`, { method: 'POST' })
+  await fetch(`${API_BASE_URL}/auth/logout`, {
+    method: 'POST',
+    credentials: 'include',
+  })
   window.location.reload()
 }
 
@@ -97,6 +103,7 @@ export async function updateProfile(updates: {
   const response = await fetch(`${API_BASE_URL}/user/profile`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
     body: JSON.stringify(updates),
   })
   if (!response.ok) {

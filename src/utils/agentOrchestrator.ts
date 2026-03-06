@@ -16,7 +16,7 @@ const { addActivity, updateActivity } = useAgentActivity()
 export const orchestrator = {
   execute: async (prompt: string, _args: any[] = [], context: Record<string, any> = {}) => {
     const settings = useSettingForm()
-    const baseUrl = settings.value.consultantBackendUrl || 'http://localhost:8000'
+    const baseUrl = settings.value.consultantBackendUrl || 'https://wordai-production-fa22.up.railway.app'
     const apiKey = settings.value.geminiAPIKey || ''
 
     // Create task parameters

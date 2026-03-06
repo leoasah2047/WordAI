@@ -31,8 +31,21 @@ window.Office.onReady(() => {
     }
   }
   app.use(i18n)
-  app.use(router)
   app.use(ElementUI)
+  app.use(router)
+
+  // Handle OAuth callback hydration for memory history
+  const path = window.location.pathname
+  if (path === '/auth/callback') {
+    const params = new URLSearchParams(window.location.search)
+    router.push({
+      path: '/auth/callback',
+      query: {
+        code: params.get('code'),
+        state: params.get('state'),
+      },
+    })
+  }
 
   // Global Error Handler
   setupGlobalErrorHandler(app)
