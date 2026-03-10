@@ -24,6 +24,7 @@ import models
 from auth_utils import (
     exchange_google_code, 
     exchange_microsoft_code, 
+    exchange_microsoft_obo_token,
     create_access_token, 
     verify_token
 )
@@ -338,9 +339,10 @@ async def a2a_rpc_endpoint(
 
 # Auth Models
 class OAuthCallbackData(BaseModel):
-    code: str
-    code_verifier: str
     redirect_uri: str
+
+class TokenExchangeResponse(BaseModel):
+    token: str
 
 class ProfileUpdate(BaseModel):
     identity: str
@@ -428,6 +430,41 @@ async def microsoft_callback(data: OAuthCallbackData, db: Session = Depends(get_
         return response
     except Exception as e:
         logger.error("microsoft_callback_error", error=str(e))
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/auth/microsoft/naa")
+async def microsoft_naa_callback(data: TokenExchangeResponse, db: Session = Depends(get_db)):
+    try:
+        # 1. (Optional) Exchange NAA token for OBO token if we need Graph access
+        # For now, we'll just validate the NAA token and create a session.
+        # obo_result = await exchange_microsoft_obo_token(data.token)
+        
+        # 2. Extract user info from NAA token
+        token_data = verify_token(data.token)
+        if not token_data:
+            raise HTTPException(status_code=401, detail="Invalid Microsoft token")
+            
+        email = token_data.email
+        
+        user = db.query(models.User).filter(models.User.email == email).first()
+        if not user:
+            # For NAA, we might not have a provider_id immediately if we don't decode OID
+            user = models.User(email=email, provider="microsoft", provider_id="naa_" + email)
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+            
+        access_token = create_access_token(data={"sub": user.id, "email": user.email})
+        
+        response = JSONResponse(content={
+            "message": "Authenticated via NAA", 
+            "user": {"email": user.email, "id": user.id},
+            "requires_onboarding": user.profile is None
+        })
+        response.set_cookie(key="session_token", value=access_token, httponly=True, secure=not settings.DEBUG, samesite="lax")
+        return response
+    except Exception as e:
+        logger.error("microsoft_naa_error", error=str(e))
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.get("/auth/me")

@@ -1,9 +1,11 @@
+import { authService } from '@/utils/authService'
 import { generateCodeChallenge, generateCodeVerifier } from '@/utils/pkce'
 
 // Placeholders - in production these should be in .env
-const GOOGLE_CLIENT_ID = '591959427519-ahul5uf85pg5sntkg82tl9kgc09rsn4a.apps.googleusercontent.com'
-const MS_CLIENT_ID = '8b2a7bd6-dd11-40ef-8711-6680d3221ea2'
-const API_BASE_URL = 'https://wordai-production-fa22.up.railway.app'
+const GOOGLE_CLIENT_ID =
+  import.meta.env.VITE_GOOGLE_CLIENT_ID || '591959427519-ahul5uf85pg5sntkg82tl9kgc09rsn4a.apps.googleusercontent.com'
+const MS_CLIENT_ID = import.meta.env.VITE_MS_CLIENT_ID || '87759d28-5815-4503-af54-280d464e9030'
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://wordai-production-fa22.up.railway.app'
 
 export const AUTH_CONFIG = {
   google: {
@@ -14,11 +16,20 @@ export const AUTH_CONFIG = {
   microsoft: {
     authUrl: 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize',
     clientId: MS_CLIENT_ID,
-    scope: 'openid email profile User.Read',
+    scope: 'openid email profile User.Read access_as_user',
   },
 }
 
 export async function initiateOAuth(provider: 'google' | 'microsoft') {
+  if (provider === 'microsoft' && window.Office?.context?.auth) {
+    try {
+      const token = await authService.getAccessToken()
+      return await handleMicrosoftNAA(token)
+    } catch (error) {
+      console.error('NAA failed, falling back to standard OAuth', error)
+    }
+  }
+
   const verifier = generateCodeVerifier()
   const challenge = await generateCodeChallenge(verifier)
   const state = Math.random().toString(36).substring(7)
@@ -42,6 +53,22 @@ export async function initiateOAuth(provider: 'google' | 'microsoft') {
   })
 
   window.location.href = `${config.authUrl}?${params.toString()}`
+}
+
+async function handleMicrosoftNAA(token: string) {
+  const response = await fetch(`${API_BASE_URL}/auth/microsoft/naa`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ token }),
+  })
+
+  if (!response.ok) {
+    const error = await response.json()
+    throw new Error(error.detail || 'NAA Authentication failed')
+  }
+
+  return await response.json()
 }
 
 export async function handleAuthCallback(code: string, state: string) {

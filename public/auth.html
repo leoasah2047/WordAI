@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8" />
+    <title>Authenticating...</title>
+    <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+    <script type="module">
+        import { PublicClientApplication } from 'https://cdn.jsdelivr.net/npm/@azure/msal-browser@latest/dist/msal-browser.min.js';
+
+        const msalConfig = {
+            auth: {
+                clientId: '87759d28-5815-4503-af54-280d464e9030',
+                authority: 'https://login.microsoftonline.com/common',
+                redirectUri: window.location.origin + '/auth.html'
+            }
+        };
+
+        const msalInstance = new PublicClientApplication(msalConfig);
+
+        async function login() {
+            await msalInstance.initialize();
+            try {
+                const result = await msalInstance.loginPopup({
+                    scopes: ['openid', 'profile', 'User.Read', 'access_as_user']
+                });
+                Office.context.ui.messageParent(JSON.stringify({ accessToken: result.accessToken }));
+            } catch (error) {
+                Office.context.ui.messageParent(JSON.stringify({ error: error.message }));
+            }
+        }
+
+        Office.onReady(() => {
+            login();
+        });
+    </script>
+</head>
+
+<body>
+    <div style="display: flex; justify-content: center; align-items: center; height: 100vh; font-family: sans-serif;">
+        Authenticating...
+    </div>
+</body>
+
+</html>
