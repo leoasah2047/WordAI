@@ -7,7 +7,9 @@ const GOOGLE_CLIENT_ID =
 const MS_CLIENT_ID = import.meta.env.VITE_MS_CLIENT_ID || '87759d28-5815-4503-af54-280d464e9030'
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ||
-  (window.location.hostname === 'localhost' ? 'http://localhost:8000' : 'https://wordai-production-fa22.up.railway.app')
+  (window.location.hostname === 'localhost'
+    ? 'https://wordai-production-fa22.up.railway.app'
+    : 'https://wordai-production-fa22.up.railway.app')
 
 export const AUTH_CONFIG = {
   google: {

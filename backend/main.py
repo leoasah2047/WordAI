@@ -339,7 +339,9 @@ async def a2a_rpc_endpoint(
 
 # Auth Models
 class OAuthCallbackData(BaseModel):
+    code: str
     redirect_uri: str
+    code_verifier: str
 
 class TokenExchangeResponse(BaseModel):
     token: str

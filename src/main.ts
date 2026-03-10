@@ -43,6 +43,14 @@ window.Office.onReady(() => {
   app.use(ElementUI)
   app.use(router)
 
+  // Hydrate Memory History from the current hash
+  if (window.location.hash) {
+    const hashPath = window.location.hash.slice(1) // remove #
+    if (hashPath) {
+      router.push(hashPath)
+    }
+  }
+
   // Global Error Handler
   setupGlobalErrorHandler(app)
 
