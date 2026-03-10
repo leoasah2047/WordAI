@@ -35,10 +35,9 @@ function setAuthCookie(name: string, value: string) {
 function getAuthCookie(name: string): string | null {
   const nameEQ = name + '='
   const ca = document.cookie.split(';')
-  for (let i = 0; i < ca.length; i++) {
-    let c = ca[i]
-    while (c.charAt(0) === ' ') c = c.substring(1, c.length)
-    if (c.indexOf(nameEQ) === 0) return c.substring(nameEQ.length, c.length)
+  for (let cookie of ca) {
+    while (cookie.charAt(0) === ' ') cookie = cookie.substring(1, cookie.length)
+    if (cookie.indexOf(nameEQ) === 0) return cookie.substring(nameEQ.length, cookie.length)
   }
   return null
 }
@@ -50,7 +49,8 @@ function clearAuthCookies() {
 }
 
 export async function initiateOAuth(provider: 'google' | 'microsoft') {
-  if (provider === 'microsoft' && window.Office?.context?.auth) {
+  const officeAuth = (window.Office?.context as any)?.auth
+  if (provider === 'microsoft' && officeAuth) {
     try {
       const token = await authService.getAccessToken()
       return await handleMicrosoftNAA(token)
@@ -90,7 +90,33 @@ export async function initiateOAuth(provider: 'google' | 'microsoft') {
   window.location.href = `${config.authUrl}?${params.toString()}`
 }
 
+export async function handleMicrosoftNAA(token: string) {
+  const response = await fetch(`${API_BASE_URL}/auth/microsoft/naa`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ token }),
+  })
+
+  if (!response.ok) {
+    const error = await response.json()
+    throw new Error(error.detail || 'NAA Authentication failed')
+  }
+
+  return await response.json()
+}
+
+// Track processing to handle double-calls in Dev Mode
+let processingState: string | null = null
+let processedResult: any = null
+
 export async function handleAuthCallback(code: string, state: string) {
+  // If we just finished this state, return the cached result
+  if (processingState === state && processedResult) {
+    console.log('Auth Callback: Returning cached result for double-call')
+    return processedResult
+  }
+
   // Try localStorage first, then fallback to Cookies
   const savedState = localStorage.getItem('auth_state') || getAuthCookie('auth_state')
   const verifier = localStorage.getItem('auth_verifier') || getAuthCookie('auth_verifier')
@@ -105,10 +131,16 @@ export async function handleAuthCallback(code: string, state: string) {
   })
 
   if (state !== savedState || !verifier || !provider) {
-    const errorMsg = `Authentication state mismatch. Received: ${state}, Saved: ${savedState}. Source: ${localStorage.getItem('auth_state') ? 'LocalStorage' : 'Cookies'}. Please try again.`
+    // If the state is missing but it matches what we just processed, return that result
+    if (processingState === state && processedResult) {
+      return processedResult
+    }
+    const errorMsg = `Authentication state mismatch. Received: ${state}, Saved: ${savedState}. Please try again.`
     console.error(errorMsg)
     throw new Error(errorMsg)
   }
+
+  processingState = state
 
   const response = await fetch(`${API_BASE_URL}/auth/${provider}/callback`, {
     method: 'POST',
@@ -126,13 +158,16 @@ export async function handleAuthCallback(code: string, state: string) {
     throw new Error(error.detail || 'Authentication failed')
   }
 
+  const result = await response.json()
+  processedResult = result
+
   // Clear temp auth data
   localStorage.removeItem('auth_state')
   localStorage.removeItem('auth_verifier')
   localStorage.removeItem('auth_provider')
   clearAuthCookies()
 
-  return await response.json()
+  return result
 }
 
 export async function getMe() {

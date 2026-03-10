@@ -46,11 +46,20 @@ class Settings(BaseSettings):
     @field_validator('ALLOWED_ORIGINS', mode='before')
     @classmethod
     def assemble_cors_origins(cls, v: any) -> List[str]:
+        origins = []
         if isinstance(v, str) and not v.startswith('['):
-            return [i.strip() for i in v.split(',')]
+            origins = [i.strip() for i in v.split(',')]
         elif isinstance(v, str) and v.startswith('['):
-            return json.loads(v)
-        return v
+            origins = json.loads(v)
+        else:
+            origins = v
+        
+        # Strictly filter out '*' as it crashes with allow_credentials=True
+        # and ensure localhost is always present in dev or if origins is empty
+        filtered = [o for o in origins if o != "*"]
+        if not filtered:
+            return ["http://localhost:3000", "http://127.0.0.1:3000"]
+        return filtered
 
     @model_validator(mode='after')
     def enforce_production_security(self) -> 'Settings':
