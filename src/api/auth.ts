@@ -80,15 +80,19 @@ export async function handleAuthCallback(code: string, state: string) {
   const verifier = localStorage.getItem('auth_verifier')
   const provider = localStorage.getItem('auth_provider')
 
-  console.log('Auth Callback Debug:', {
+  console.log('Auth Callback Verification:', {
     receivedState: state,
     savedState,
-    verifier: !!verifier,
+    hasVerifier: !!verifier,
     provider,
   })
 
+  // If state mismatch, but we have a code, let's log it clearly.
+  // In some dev environments, the state can be overwritten by a concurrent reload.
   if (state !== savedState || !verifier || !provider) {
-    throw new Error(`Invalid state or missing verifier. Received: ${state}, Saved: ${savedState}`)
+    const errorMsg = `Authentication state mismatch. Received: ${state}, Saved: ${savedState}. Please try again.`
+    console.error(errorMsg)
+    throw new Error(errorMsg)
   }
 
   const response = await fetch(`${API_BASE_URL}/auth/${provider}/callback`, {
