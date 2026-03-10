@@ -10,6 +10,15 @@ import router from './router'
 import { setupGlobalErrorHandler } from './utils/errorHandling'
 
 window.Office.onReady(() => {
+  // Handle OAuth callback hydration from path to hash
+  const path = window.location.pathname
+  if (path === '/auth/callback' || path.endsWith('/auth/callback')) {
+    const params = new URLSearchParams(window.location.search)
+    // Redirect to hash route so Vue Router can handle it
+    window.location.href = `${window.location.origin}/#/auth/callback?${params.toString()}`
+    return
+  }
+
   const app = createApp(App)
   const debounce = (fn: (...args: any[]) => void, delay?: number) => {
     let timer: number | null = null
@@ -33,19 +42,6 @@ window.Office.onReady(() => {
   app.use(i18n)
   app.use(ElementUI)
   app.use(router)
-
-  // Handle OAuth callback hydration for memory history
-  const path = window.location.pathname
-  if (path === '/auth/callback') {
-    const params = new URLSearchParams(window.location.search)
-    router.push({
-      path: '/auth/callback',
-      query: {
-        code: params.get('code'),
-        state: params.get('state'),
-      },
-    })
-  }
 
   // Global Error Handler
   setupGlobalErrorHandler(app)

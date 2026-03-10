@@ -45,8 +45,10 @@ export function useAuthStore() {
   }
 
   const login = (userData: any) => {
-    state.user = userData.user
-    state.user!.onboarded = !userData.requires_onboarding
+    if (userData && userData.user) {
+      state.user = userData.user
+      state.user!.onboarded = !userData.requires_onboarding
+    }
     state.initialized = true
   }
 

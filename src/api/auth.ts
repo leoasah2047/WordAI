@@ -5,7 +5,9 @@ import { generateCodeChallenge, generateCodeVerifier } from '@/utils/pkce'
 const GOOGLE_CLIENT_ID =
   import.meta.env.VITE_GOOGLE_CLIENT_ID || '591959427519-ahul5uf85pg5sntkg82tl9kgc09rsn4a.apps.googleusercontent.com'
 const MS_CLIENT_ID = import.meta.env.VITE_MS_CLIENT_ID || '87759d28-5815-4503-af54-280d464e9030'
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://wordai-production-fa22.up.railway.app'
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL ||
+  (window.location.hostname === 'localhost' ? 'http://localhost:8000' : 'https://wordai-production-fa22.up.railway.app')
 
 export const AUTH_CONFIG = {
   google: {
@@ -14,9 +16,9 @@ export const AUTH_CONFIG = {
     scope: 'openid email profile',
   },
   microsoft: {
-    authUrl: 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize',
+    authUrl: 'https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize',
     clientId: MS_CLIENT_ID,
-    scope: 'openid email profile User.Read access_as_user',
+    scope: `openid email profile User.Read api://${MS_CLIENT_ID}/access_as_user`,
   },
 }
 

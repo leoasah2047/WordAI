@@ -1,10 +1,10 @@
-import { createMemoryHistory, createRouter } from 'vue-router'
+import { createRouter, createWebHashHistory } from 'vue-router'
 
 import MainLayout from '../layouts/MainLayout.vue'
 import { useAuthStore } from '../stores/AuthStore'
 
 const router = createRouter({
-  history: createMemoryHistory(),
+  history: createWebHashHistory(),
   routes: [
     {
       path: '/login',
