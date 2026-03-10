@@ -17,6 +17,16 @@ export default defineConfig({
       brotliSize: true,
     }),
   ],
+  server: {
+    port: 3000,
+    strictPort: true,
+    hmr: {
+      protocol: 'ws',
+      host: 'localhost',
+      port: 3000,
+      clientPort: 3000,
+    },
+  },
   esbuild: {
     target: 'esnext',
   },

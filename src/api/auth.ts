@@ -24,6 +24,31 @@ export const AUTH_CONFIG = {
   },
 }
 
+// Helper to manage auth state in cookies (more reliable in some Office environments than localStorage)
+function setAuthCookie(name: string, value: string) {
+  // Use a short-lived cookie (15 mins)
+  const date = new Date()
+  date.setTime(date.getTime() + 15 * 60 * 1000)
+  document.cookie = `${name}=${value}; expires=${date.toUTCString()}; path=/; SameSite=None; Secure`
+}
+
+function getAuthCookie(name: string): string | null {
+  const nameEQ = name + '='
+  const ca = document.cookie.split(';')
+  for (let i = 0; i < ca.length; i++) {
+    let c = ca[i]
+    while (c.charAt(0) === ' ') c = c.substring(1, c.length)
+    if (c.indexOf(nameEQ) === 0) return c.substring(nameEQ.length, c.length)
+  }
+  return null
+}
+
+function clearAuthCookies() {
+  document.cookie = 'auth_state=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; SameSite=None; Secure'
+  document.cookie = 'auth_verifier=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; SameSite=None; Secure'
+  document.cookie = 'auth_provider=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; SameSite=None; Secure'
+}
+
 export async function initiateOAuth(provider: 'google' | 'microsoft') {
   if (provider === 'microsoft' && window.Office?.context?.auth) {
     try {
@@ -38,15 +63,16 @@ export async function initiateOAuth(provider: 'google' | 'microsoft') {
   const challenge = await generateCodeChallenge(verifier)
   const state = Math.random().toString(36).substring(7)
 
-  // Store verifier and state to verify on callback
-  // Clear any stale auth data before starting fresh
-  localStorage.removeItem('auth_verifier')
-  localStorage.removeItem('auth_state')
-  localStorage.removeItem('auth_provider')
-
+  // Store in both localStorage AND Cookies for maximum reliability
   localStorage.setItem('auth_verifier', verifier)
   localStorage.setItem('auth_state', state)
   localStorage.setItem('auth_provider', provider)
+
+  setAuthCookie('auth_verifier', verifier)
+  setAuthCookie('auth_state', state)
+  setAuthCookie('auth_provider', provider)
+
+  console.log('Auth Initiation (Storage set in both LocalStorage and Cookies)')
 
   const config = AUTH_CONFIG[provider]
   const redirectUri = `${window.location.origin}/auth/callback`
@@ -64,38 +90,22 @@ export async function initiateOAuth(provider: 'google' | 'microsoft') {
   window.location.href = `${config.authUrl}?${params.toString()}`
 }
 
-async function handleMicrosoftNAA(token: string) {
-  const response = await fetch(`${API_BASE_URL}/auth/microsoft/naa`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
-    body: JSON.stringify({ token }),
-  })
-
-  if (!response.ok) {
-    const error = await response.json()
-    throw new Error(error.detail || 'NAA Authentication failed')
-  }
-
-  return await response.json()
-}
-
 export async function handleAuthCallback(code: string, state: string) {
-  const savedState = localStorage.getItem('auth_state')
-  const verifier = localStorage.getItem('auth_verifier')
-  const provider = localStorage.getItem('auth_provider')
+  // Try localStorage first, then fallback to Cookies
+  const savedState = localStorage.getItem('auth_state') || getAuthCookie('auth_state')
+  const verifier = localStorage.getItem('auth_verifier') || getAuthCookie('auth_verifier')
+  const provider = (localStorage.getItem('auth_provider') || getAuthCookie('auth_provider')) as 'google' | 'microsoft'
 
   console.log('Auth Callback Verification:', {
     receivedState: state,
     savedState,
     hasVerifier: !!verifier,
     provider,
+    source: localStorage.getItem('auth_state') ? 'localStorage' : 'Cookies',
   })
 
-  // If state mismatch, but we have a code, let's log it clearly.
-  // In some dev environments, the state can be overwritten by a concurrent reload.
   if (state !== savedState || !verifier || !provider) {
-    const errorMsg = `Authentication state mismatch. Received: ${state}, Saved: ${savedState}. Please try again.`
+    const errorMsg = `Authentication state mismatch. Received: ${state}, Saved: ${savedState}. Source: ${localStorage.getItem('auth_state') ? 'LocalStorage' : 'Cookies'}. Please try again.`
     console.error(errorMsg)
     throw new Error(errorMsg)
   }
@@ -120,6 +130,7 @@ export async function handleAuthCallback(code: string, state: string) {
   localStorage.removeItem('auth_state')
   localStorage.removeItem('auth_verifier')
   localStorage.removeItem('auth_provider')
+  clearAuthCookies()
 
   return await response.json()
 }
