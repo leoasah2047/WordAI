@@ -39,6 +39,11 @@ export async function initiateOAuth(provider: 'google' | 'microsoft') {
   const state = Math.random().toString(36).substring(7)
 
   // Store verifier and state to verify on callback
+  // Clear any stale auth data before starting fresh
+  localStorage.removeItem('auth_verifier')
+  localStorage.removeItem('auth_state')
+  localStorage.removeItem('auth_provider')
+
   localStorage.setItem('auth_verifier', verifier)
   localStorage.setItem('auth_state', state)
   localStorage.setItem('auth_provider', provider)

@@ -1,7 +1,8 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import model_validator
+from pydantic import model_validator, field_validator
 from typing import List, Optional
 import os
+import json
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file='.env', case_sensitive=True)
@@ -41,6 +42,15 @@ class Settings(BaseSettings):
 
     # Logging
     LOG_LEVEL: str = "INFO"
+
+    @field_validator('ALLOWED_ORIGINS', mode='before')
+    @classmethod
+    def assemble_cors_origins(cls, v: any) -> List[str]:
+        if isinstance(v, str) and not v.startswith('['):
+            return [i.strip() for i in v.split(',')]
+        elif isinstance(v, str) and v.startswith('['):
+            return json.loads(v)
+        return v
 
     @model_validator(mode='after')
     def enforce_production_security(self) -> 'Settings':
