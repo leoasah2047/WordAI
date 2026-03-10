@@ -399,8 +399,8 @@ async def google_callback(data: OAuthCallbackData, db: Session = Depends(get_db)
             key="session_token", 
             value=access_token, 
             httponly=True, 
-            secure=not settings.DEBUG,
-            samesite="lax"
+            secure=True, 
+            samesite="none"
         )
         return response
     except Exception as e:

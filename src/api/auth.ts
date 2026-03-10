@@ -80,8 +80,15 @@ export async function handleAuthCallback(code: string, state: string) {
   const verifier = localStorage.getItem('auth_verifier')
   const provider = localStorage.getItem('auth_provider')
 
+  console.log('Auth Callback Debug:', {
+    receivedState: state,
+    savedState,
+    verifier: !!verifier,
+    provider,
+  })
+
   if (state !== savedState || !verifier || !provider) {
-    throw new Error('Invalid state or missing verifier')
+    throw new Error(`Invalid state or missing verifier. Received: ${state}, Saved: ${savedState}`)
   }
 
   const response = await fetch(`${API_BASE_URL}/auth/${provider}/callback`, {
