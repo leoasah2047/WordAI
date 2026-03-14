@@ -43,6 +43,17 @@
   <!-- End TaskPane Mode integration.  -->
 
   <Permissions>ReadWriteDocument</Permissions>
+  
+  <WebApplicationInfo>
+    <Id>87759d28-5815-4503-af54-280d464e9030</Id>
+    <Resource>api://word.msq.pub/87759d28-5815-4503-af54-280d464e9030</Resource>
+    <Scopes>
+      <Scope>openid</Scope>
+      <Scope>profile</Scope>
+      <Scope>User.Read</Scope>
+      <Scope>access_as_user</Scope>
+    </Scopes>
+  </WebApplicationInfo>
 
   <!-- Begin Add-in Commands Mode integration. -->
   <VersionOverrides xmlns="http://schemas.microsoft.com/office/taskpaneappversionoverrides" xsi:type="VersionOverridesV1_0">

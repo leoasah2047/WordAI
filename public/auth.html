@@ -18,20 +18,28 @@
 
         const msalInstance = new PublicClientApplication(msalConfig);
 
-        async function login() {
+        async function handleAuth() {
             await msalInstance.initialize();
+            
+            // Check if we are returning from a redirect
             try {
-                const result = await msalInstance.loginPopup({
-                    scopes: ['openid', 'profile', 'User.Read', 'access_as_user']
-                });
-                Office.context.ui.messageParent(JSON.stringify({ accessToken: result.accessToken }));
+                const result = await msalInstance.handleRedirectPromise();
+                if (result) {
+                    Office.context.ui.messageParent(JSON.stringify({ accessToken: result.accessToken }));
+                } else {
+                    // Start the login flow
+                    await msalInstance.loginRedirect({
+                        scopes: ['openid', 'profile', 'User.Read', 'api://87759d28-5815-4503-af54-280d464e9030/access_as_user']
+                    });
+                }
             } catch (error) {
+                console.error(error);
                 Office.context.ui.messageParent(JSON.stringify({ error: error.message }));
             }
         }
 
         Office.onReady(() => {
-            login();
+            handleAuth();
         });
     </script>
 </head>

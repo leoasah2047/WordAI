@@ -49,13 +49,26 @@ function clearAuthCookies() {
 }
 
 export async function initiateOAuth(provider: 'google' | 'microsoft') {
+  const isOffice = typeof window.Office !== 'undefined' && window.Office.context
   const officeAuth = (window.Office?.context as any)?.auth
+
   if (provider === 'microsoft' && officeAuth) {
     try {
       const token = await authService.getAccessToken()
       return await handleMicrosoftNAA(token)
     } catch (error) {
       console.error('NAA failed, falling back to standard OAuth', error)
+    }
+  }
+
+  // If in Office, we should use Dialog API to avoid navigating the task pane away
+  if (isOffice) {
+    try {
+      await authService.getAccessToken() // This will use the Dialog API fallback if NAA fails or for Google if integrated
+      // However, authService.ts current implementation only handles Microsoft/NAA.
+      // We might need to extend authService to handle arbitrary providers or handle it here.
+    } catch (error) {
+      console.error('Dialog Auth failed', error)
     }
   }
 
@@ -87,7 +100,19 @@ export async function initiateOAuth(provider: 'google' | 'microsoft') {
     code_challenge_method: 'S256',
   })
 
-  window.location.href = `${config.authUrl}?${params.toString()}`
+  const authUrl = `${config.authUrl}?${params.toString()}`
+
+  if (isOffice) {
+    // Open the auth URL in a dialog instead of redirecting the task pane
+    Office.context.ui.displayDialogAsync(authUrl, { height: 60, width: 40, displayInIframe: false }, asyncResult => {
+      if (asyncResult.status === Office.AsyncResultStatus.Failed) {
+        console.error('Dialog failed to open:', asyncResult.error.message)
+        window.location.href = authUrl // Ultimate fallback
+      }
+    })
+  } else {
+    window.location.href = authUrl
+  }
 }
 
 export async function handleMicrosoftNAA(token: string) {

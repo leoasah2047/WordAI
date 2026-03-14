@@ -5,7 +5,7 @@ import os
 import json
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file='.env', case_sensitive=True)
+    model_config = SettingsConfigDict(env_file='.env', case_sensitive=True, extra='ignore')
     # API Settings
     APP_NAME: str = "Word-AI"
     APP_VERSION: str = "1.0.0"

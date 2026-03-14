@@ -428,7 +428,13 @@ async def microsoft_callback(data: OAuthCallbackData, db: Session = Depends(get_
             "user": {"email": user.email, "id": user.id},
             "requires_onboarding": user.profile is None
         })
-        response.set_cookie(key="session_token", value=access_token, httponly=True, secure=not settings.DEBUG, samesite="lax")
+        response.set_cookie(
+            key="session_token", 
+            value=access_token, 
+            httponly=True, 
+            secure=True, 
+            samesite="none"
+        )
         return response
     except Exception as e:
         logger.error("microsoft_callback_error", error=str(e))
