@@ -7,6 +7,10 @@
     <link rel="icon" href="/favicon.ico" />
     <title>Word GPT Plus</title>
     <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+    <script>
+      // Ensure Office.js is initialized as early as possible to prevent loader timeouts
+      window.Office.onReady();
+    </script>
     <script type="module" src="/src/main.js"></script>
   </head>
 
