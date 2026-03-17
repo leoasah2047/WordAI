@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     # Security
     JWT_SECRET_KEY: str = "9c8f2a1b5e3d7f0a4b9c8d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a"  # Should be set in env
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
-    ALLOWED_ORIGINS: List[str] = ["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:8000"]
+    ALLOWED_ORIGINS: List[str] = ["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:8000", "https://word-ai-lac.vercel.app"]
     
     # Database
     DATABASE_URL: str = "postgresql://postgres:password@localhost:5432/wordai"
