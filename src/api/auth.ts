@@ -7,7 +7,7 @@ const GOOGLE_CLIENT_ID =
 const MS_CLIENT_ID = import.meta.env.VITE_MS_CLIENT_ID || '87759d28-5815-4503-af54-280d464e9030'
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ||
-  (window.location.hostname === 'localhost'
+  (typeof window !== 'undefined' && window.location.hostname === 'localhost'
     ? 'https://wordai-production-fa22.up.railway.app'
     : 'https://wordai-production-fa22.up.railway.app')
 
@@ -61,16 +61,7 @@ export async function initiateOAuth(provider: 'google' | 'microsoft') {
     }
   }
 
-  // If in Office, we should use Dialog API to avoid navigating the task pane away
-  if (isOffice) {
-    try {
-      await authService.getAccessToken() // This will use the Dialog API fallback if NAA fails or for Google if integrated
-      // However, authService.ts current implementation only handles Microsoft/NAA.
-      // We might need to extend authService to handle arbitrary providers or handle it here.
-    } catch (error) {
-      console.error('Dialog Auth failed', error)
-    }
-  }
+  // Removed the unused getAccessToken() fallback that was causing dual-dialog conflicts
 
   const verifier = generateCodeVerifier()
   const challenge = await generateCodeChallenge(verifier)
@@ -102,16 +93,64 @@ export async function initiateOAuth(provider: 'google' | 'microsoft') {
 
   const authUrl = `${config.authUrl}?${params.toString()}`
 
+  // Pass the state and verifier into the dialog so it doesn't need to rely on localStorage
+  const localParams = new URLSearchParams({
+    url: authUrl,
+    state,
+    verifier,
+  })
+  const startUrl = `${window.location.origin}/auth/start?${localParams.toString()}`
+
   if (isOffice) {
-    // Open the auth URL in a dialog instead of redirecting the task pane
-    Office.context.ui.displayDialogAsync(authUrl, { height: 60, width: 40, displayInIframe: false }, asyncResult => {
-      if (asyncResult.status === Office.AsyncResultStatus.Failed) {
-        console.error('Dialog failed to open:', asyncResult.error.message)
-        window.location.href = authUrl // Ultimate fallback
-      }
+    return new Promise((resolve, reject) => {
+      // Open the local start URL in a dialog instead of the cross-domain authUrl directly
+      Office.context.ui.displayDialogAsync(startUrl, { height: 60, width: 40, displayInIframe: false }, asyncResult => {
+        if (asyncResult.status === Office.AsyncResultStatus.Failed) {
+          console.error('Dialog failed to open:', asyncResult.error.message)
+          reject(new Error('Popup blocked or dialog unavailable. Please allow popups for this Add-in and try again.'))
+        } else {
+          const dialog = asyncResult.value
+
+          dialog.addEventHandler(Office.EventType.DialogMessageReceived, async (arg: any) => {
+            dialog.close()
+            const message = arg.message as string
+            try {
+              let code: string | null = null
+              let callbackState: string | null = null
+
+              try {
+                const data = JSON.parse(message)
+                code = data.code || null
+                callbackState = data.state || null
+              } catch {
+                // Fallback for older query string format
+                const messageParams = new URLSearchParams(message.startsWith('?') ? message : `?${message}`)
+                code = messageParams.get('code')
+                callbackState = messageParams.get('state')
+              }
+
+              if (code && callbackState) {
+                const userData = await handleAuthCallback(code, callbackState)
+                resolve(userData)
+              } else {
+                reject(new Error('Invalid callback parameters from dialog'))
+              }
+            } catch (err) {
+              reject(err)
+            }
+          })
+
+          dialog.addEventHandler(Office.EventType.DialogEventReceived, (arg: any) => {
+            if (arg.error === 12006) {
+              reject(new Error('Authentication cancelled by user'))
+            }
+          })
+        }
+      })
     })
   } else {
     window.location.href = authUrl
+    return null
   }
 }
 
@@ -160,6 +199,13 @@ export async function handleAuthCallback(code: string, state: string) {
     if (processingState === state && processedResult) {
       return processedResult
     }
+    
+    // Clear temp auth data so the next attempt starts clean
+    localStorage.removeItem('auth_state')
+    localStorage.removeItem('auth_verifier')
+    localStorage.removeItem('auth_provider')
+    clearAuthCookies()
+
     const errorMsg = `Authentication state mismatch. Received: ${state}, Saved: ${savedState}. Please try again.`
     console.error(errorMsg)
     throw new Error(errorMsg)

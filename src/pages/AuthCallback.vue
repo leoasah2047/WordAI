@@ -27,6 +27,23 @@ onMounted(async () => {
     return
   }
 
+  const isOffice = typeof (window as any).Office !== 'undefined'
+
+  if (isOffice) {
+    ;(window as any).Office.onReady(() => {
+      const office = (window as any).Office
+      if (office && office.context && office.context.ui && office.context.ui.messageParent) {
+        office.context.ui.messageParent(JSON.stringify({ code, state }))
+      } else {
+        processAuthNormally(code, state)
+      }
+    })
+  } else {
+    processAuthNormally(code, state)
+  }
+})
+
+async function processAuthNormally(code: string, state: string) {
   try {
     const userData = await handleAuthCallback(code, state)
     login(userData)
@@ -40,7 +57,7 @@ onMounted(async () => {
     console.error('Authentication failed:', error)
     router.push('/login?error=auth_failed')
   }
-})
+}
 </script>
 
 <style scoped>

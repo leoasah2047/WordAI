@@ -1,5 +1,5 @@
 import { fileURLToPath, URL } from 'node:url'
-
+import basicSsl from '@vitejs/plugin-basic-ssl'
 import vue from '@vitejs/plugin-vue'
 import { visualizer } from 'rollup-plugin-visualizer'
 import { defineConfig } from 'vite'
@@ -9,6 +9,7 @@ import json5Plugin from 'vite-plugin-json5'
 export default defineConfig({
   plugins: [
     vue(),
+    basicSsl(),
     json5Plugin(),
     visualizer({
       open: false,
@@ -21,7 +22,7 @@ export default defineConfig({
     port: 3000,
     strictPort: true,
     hmr: {
-      protocol: 'ws',
+      protocol: 'wss',
       host: 'localhost',
       port: 3000,
       clientPort: 3000,

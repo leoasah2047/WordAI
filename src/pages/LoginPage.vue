@@ -57,11 +57,35 @@
 
 <script lang="ts" setup>
 import { MessageSquare } from 'lucide-vue-next'
+import { ref } from 'vue'
+import { useRouter } from 'vue-router'
 
 import { initiateOAuth } from '@/api/auth'
+import { useAuthStore } from '@/stores/AuthStore'
+
+const router = useRouter()
+const { login } = useAuthStore()
+const isAuthenticating = ref(false)
 
 async function handleLogin(provider: 'google' | 'microsoft') {
-  await initiateOAuth(provider)
+  if (isAuthenticating.value) return
+  isAuthenticating.value = true
+
+  try {
+    const userData = await initiateOAuth(provider)
+    if (userData) {
+      login(userData)
+      if (userData.requires_onboarding) {
+        router.push('/')
+      } else {
+        router.push('/')
+      }
+    }
+  } catch (error) {
+    console.error('Login error:', error)
+  } finally {
+    isAuthenticating.value = false
+  }
 }
 </script>
 

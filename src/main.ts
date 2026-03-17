@@ -19,6 +19,33 @@ window.Office.onReady(() => {
     return
   }
 
+  // Handle Dialog API same-origin requirement by redirecting to MS from a local URL
+  if (path === '/auth/start' || path.endsWith('/auth/start')) {
+    const params = new URLSearchParams(window.location.search)
+    const authUrl = params.get('url')
+    const state = params.get('state')
+    const verifier = params.get('verifier')
+
+    // The dialog has its own isolated cookie/storage space. We need to save the
+    // pkce parameters passed from the task pane here locally before continuing the OAuth flow.
+    if (state && verifier) {
+      const date = new Date()
+      date.setTime(date.getTime() + 15 * 60 * 1000)
+      const expires = `expires=${date.toUTCString()}`
+      document.cookie = `auth_state=${state}; ${expires}; path=/; SameSite=None; Secure`
+      document.cookie = `auth_verifier=${verifier}; ${expires}; path=/; SameSite=None; Secure`
+      document.cookie = `auth_provider=microsoft; ${expires}; path=/; SameSite=None; Secure`
+      localStorage.setItem('auth_state', state)
+      localStorage.setItem('auth_verifier', verifier)
+      localStorage.setItem('auth_provider', 'microsoft')
+    }
+
+    if (authUrl) {
+      window.location.href = authUrl
+      return
+    }
+  }
+
   const app = createApp(App)
   const debounce = (fn: (...args: any[]) => void, delay?: number) => {
     let timer: number | null = null

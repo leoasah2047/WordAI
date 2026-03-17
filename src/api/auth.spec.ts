@@ -43,6 +43,9 @@ vi.stubGlobal('location', {
   href: '',
   reload: vi.fn(),
 })
+vi.stubGlobal('document', {
+  cookie: '',
+})
 vi.stubGlobal('crypto', cryptoMock)
 vi.stubGlobal('window', {
   location: { origin: 'http://localhost:3000', href: '', reload: vi.fn() },
@@ -105,7 +108,10 @@ describe('auth api', () => {
     ;(global.fetch as any).mockResolvedValueOnce({ ok: true })
 
     await logout()
-    expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining('/auth/logout'), { method: 'POST' })
+    expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining('/auth/logout'), { 
+      method: 'POST',
+      credentials: 'include',
+    })
     expect(window.location.reload).toHaveBeenCalled()
   })
 })
