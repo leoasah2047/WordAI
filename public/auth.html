@@ -9,9 +9,8 @@
         // Ensure Office.js is initialized as early as possible to prevent loader timeouts
         Office.onReady();
     </script>
+    <script src="./lib/msal-browser.min.js"></script>
     <script type="module">
-        import { PublicClientApplication } from './lib/msal-browser.min.js';
-
         const msalConfig = {
             auth: {
                 clientId: '87759d28-5815-4503-af54-280d464e9030',
@@ -25,7 +24,7 @@
         };
 
         async function handleAuth() {
-            const msalInstance = new PublicClientApplication(msalConfig);
+            const msalInstance = new msal.PublicClientApplication(msalConfig);
             await msalInstance.initialize();
             
             // Check if we are returning from a redirect
