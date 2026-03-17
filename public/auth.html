@@ -17,12 +17,15 @@
                 clientId: '87759d28-5815-4503-af54-280d464e9030',
                 authority: 'https://login.microsoftonline.com/common',
                 redirectUri: window.location.origin + '/auth.html'
+            },
+            cache: {
+                cacheLocation: 'sessionStorage',
+                storeAuthStateInCookie: true
             }
         };
 
-        const msalInstance = new PublicClientApplication(msalConfig);
-
         async function handleAuth() {
+            const msalInstance = new PublicClientApplication(msalConfig);
             await msalInstance.initialize();
             
             // Check if we are returning from a redirect
