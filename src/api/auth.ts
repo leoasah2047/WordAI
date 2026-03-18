@@ -54,10 +54,13 @@ export async function initiateOAuth(provider: 'google' | 'microsoft') {
 
   if (provider === 'microsoft' && officeAuth) {
     try {
+      console.log('Attempting Nested App Authentication (NAA)...')
       const token = await authService.getAccessToken()
       return await handleMicrosoftNAA(token)
     } catch (error) {
-      console.error('NAA failed, falling back to standard OAuth', error)
+      console.warn('NAA failed, falling back to standard OAuth after a short delay', error)
+      // Small delay to ensure any NAA internal state or dialog attempts are cleared
+      await new Promise(resolve => setTimeout(resolve, 500))
     }
   }
 
@@ -199,7 +202,6 @@ export async function handleAuthCallback(code: string, state: string) {
     if (processingState === state && processedResult) {
       return processedResult
     }
-    
     // Clear temp auth data so the next attempt starts clean
     localStorage.removeItem('auth_state')
     localStorage.removeItem('auth_verifier')

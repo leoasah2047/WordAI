@@ -5,63 +5,37 @@ import { loginRequest, msalConfig } from './msalConfig'
 class AuthService {
   private msalInstance: PublicClientApplication | null = null
 
+  private initPromise: Promise<void> | null = null
+
   async initialize() {
-    if (this.msalInstance) return
-    this.msalInstance = new PublicClientApplication(msalConfig)
-    await this.msalInstance.initialize()
+    if (this.initPromise) return this.initPromise
+
+    this.initPromise = (async () => {
+      this.msalInstance = new PublicClientApplication(msalConfig)
+      await this.msalInstance.initialize()
+    })()
+
+    return this.initPromise
   }
 
   async getAccessToken(): Promise<string> {
     await this.initialize()
     if (!this.msalInstance) throw new Error('MSAL not initialized')
 
+    const accounts = this.msalInstance.getAllAccounts()
+    const account = accounts.length > 0 ? accounts[0] : undefined
+
     try {
-      // Try NAA first
+      // Try NAA first (silent acquisition)
       const result: AuthenticationResult = await this.msalInstance.acquireTokenSilent({
         ...loginRequest,
-        account: this.msalInstance.getAllAccounts()[0],
+        account,
       })
       return result.accessToken
-    } catch (error) {
+    } catch (error: any) {
       console.warn('Silent token acquisition failed, attempting fallback...', error)
-      return this.fallbackLogin()
+      throw error // Re-throw to be handled by the caller (fallback logic in initiateOAuth)
     }
-  }
-
-  private async fallbackLogin(): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const dialogUrl = `${window.location.origin}/auth.html`
-
-      Office.context.ui.displayDialogAsync(
-        dialogUrl,
-        { height: 60, width: 40, displayInIframe: false },
-        asyncResult => {
-          if (asyncResult.status === Office.AsyncResultStatus.Failed) {
-            reject(new Error(asyncResult.error.message))
-            return
-          }
-
-          const dialog = asyncResult.value
-          dialog.addEventHandler(Office.EventType.DialogMessageReceived, (args: any) => {
-            if (args.message) {
-              const response = JSON.parse(args.message)
-              if (response.accessToken) {
-                resolve(response.accessToken)
-              } else {
-                reject(new Error('No token received from dialog'))
-              }
-              dialog.close()
-            }
-          })
-
-          dialog.addEventHandler(Office.EventType.DialogEventReceived, (args: any) => {
-            if (args.error) {
-              reject(new Error(`Dialog error: ${args.error}`))
-            }
-          })
-        },
-      )
-    })
   }
 }
 
