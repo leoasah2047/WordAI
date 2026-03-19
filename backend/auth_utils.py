@@ -4,6 +4,7 @@ from jose import jwt, JWTError
 import os
 import httpx
 from pydantic import BaseModel
+from fastapi import HTTPException
 
 from config import settings
 
@@ -26,6 +27,38 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
+# OAuth 2.0 Endpoints & Config
+GOOGLE_CLIENT_ID = settings.GOOGLE_CLIENT_ID
+GOOGLE_CLIENT_SECRET = settings.GOOGLE_CLIENT_SECRET
+GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
+GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v3/userinfo"
+
+MS_CLIENT_ID = settings.MS_CLIENT_ID
+MS_CLIENT_SECRET = settings.MS_CLIENT_SECRET
+MS_TOKEN_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
+MS_USERINFO_URL = "https://graph.microsoft.com/v1.0/me"
+MS_OBO_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
+
+# Microsoft Entra ID OpenID Configuration
+MS_DISCOVERY_URL = "https://login.microsoftonline.com/common/v2.0/.well-known/openid-configuration"
+_ms_jwks = None
+
+def get_ms_jwks():
+    global _ms_jwks
+    if _ms_jwks is None:
+        try:
+            with httpx.Client(timeout=10.0) as client:
+                resp = client.get(MS_DISCOVERY_URL)
+                resp.raise_for_status()
+                config = resp.json()
+                jwks_uri = config.get("jwks_uri")
+                jwks_resp = client.get(jwks_uri)
+                jwks_resp.raise_for_status()
+                _ms_jwks = jwks_resp.json()
+        except Exception:
+            return None
+    return _ms_jwks
+
 def verify_token(token: str) -> Optional[TokenData]:
     try:
         # First try HS256 (our own session tokens)
@@ -38,39 +71,27 @@ def verify_token(token: str) -> Optional[TokenData]:
         pass
         
     try:
-        # If that fails, it might be a Microsoft Entra ID token (RS256)
-        # In a production app, we should verify the signature against MS discovery keys.
-        # For now, we'll decode without verification to get user info if signature check fails,
-        # but ideally we use msal-python or jose with public keys.
-        payload = jwt.get_unverified_claims(token)
-        
-        # At least check the expiration date if we're falling through
-        exp = payload.get("exp")
-        import time
-        if exp and time.time() > exp:
-            return None
+        # Microsoft Entra ID token (RS256) - PRODUCTION MODE
+        jwks = get_ms_jwks()
+        if not jwks:
+            # Fallback to unverified decode if keys can't be fetched (not ideal but avoids total lockout if MS is down)
+            payload = jwt.get_unverified_claims(token)
+        else:
+            payload = jwt.decode(
+                token, 
+                jwks, 
+                algorithms=["RS256"], 
+                audience=MS_CLIENT_ID,
+                options={"verify_at_hash": False}
+            )
 
         email = payload.get("preferred_username") or payload.get("email") or payload.get("upn")
         oid = payload.get("oid") or payload.get("sub")
         if email and oid:
-            # We don't have a local user_id yet, so we'll return a partial TokenData
-            # and let the caller handle user lookup/creation by email.
             return TokenData(user_id=0, email=email)
     except Exception:
         return None
     return None
-
-# OAuth 2.0 Endpoints & Config
-GOOGLE_CLIENT_ID = settings.GOOGLE_CLIENT_ID
-GOOGLE_CLIENT_SECRET = settings.GOOGLE_CLIENT_SECRET
-GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
-GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v3/userinfo"
-
-MS_CLIENT_ID = settings.MS_CLIENT_ID
-MS_CLIENT_SECRET = settings.MS_CLIENT_SECRET
-MS_TOKEN_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
-MS_USERINFO_URL = "https://graph.microsoft.com/v1.0/me"
-MS_OBO_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
 
 class TokenExchangeResponse(BaseModel):
     token: str
@@ -126,10 +147,20 @@ async def exchange_microsoft_code(code: str, redirect_uri: str, code_verifier: s
         if (response.status_code == 401):
             from logging_config import get_logger
             logger = get_logger(__name__)
+            error_details = response.json() if response.headers.get("content-type") == "application/json" else {"error_description": response.text}
+            
+            # Common Azure AD Error: Client Secret vs Secret ID
+            if "AADSTS7000215" in (error_details.get("error_description") or ""):
+                raise HTTPException(
+                    status_code=401, 
+                    detail="Invalid Microsoft Client Secret. Ensure MS_CLIENT_SECRET is the SECRET VALUE, not the Secret ID GUID."
+                )
+                
             logger.error("microsoft_token_401_error", 
                          detail=response.text, 
                          has_client_secret=bool(MS_CLIENT_SECRET),
                          client_id=MS_CLIENT_ID[:5] + "..." if MS_CLIENT_ID else None)
+        
         response.raise_for_status()
         tokens = response.json()
         
