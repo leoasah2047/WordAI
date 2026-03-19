@@ -18,7 +18,7 @@ export const AUTH_CONFIG = {
     scope: 'openid email profile',
   },
   microsoft: {
-    authUrl: 'https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize',
+    authUrl: 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize',
     clientId: MS_CLIENT_ID,
     scope: `openid email profile User.Read api://${MS_CLIENT_ID}/access_as_user`,
   },
@@ -70,16 +70,11 @@ export async function initiateOAuth(provider: 'google' | 'microsoft') {
   const challenge = await generateCodeChallenge(verifier)
   const state = Math.random().toString(36).substring(7)
 
-  // Store in both localStorage AND Cookies for maximum reliability
-  localStorage.setItem('auth_verifier', verifier)
-  localStorage.setItem('auth_state', state)
-  localStorage.setItem('auth_provider', provider)
-
   setAuthCookie('auth_verifier', verifier)
   setAuthCookie('auth_state', state)
   setAuthCookie('auth_provider', provider)
 
-  console.log('Auth Initiation (Storage set in both LocalStorage and Cookies)')
+  console.log(`Auth Initiation: State and verifier saved (${provider})`)
 
   const config = AUTH_CONFIG[provider]
   const redirectUri = `${window.location.origin}/auth/callback`
@@ -189,12 +184,13 @@ export async function handleAuthCallback(code: string, state: string) {
   const verifier = localStorage.getItem('auth_verifier') || getAuthCookie('auth_verifier')
   const provider = (localStorage.getItem('auth_provider') || getAuthCookie('auth_provider')) as 'google' | 'microsoft'
 
+  const isFromLocalStorage = !!localStorage.getItem('auth_state')
   console.log('Auth Callback Verification:', {
     receivedState: state,
     savedState,
     hasVerifier: !!verifier,
     provider,
-    source: localStorage.getItem('auth_state') ? 'localStorage' : 'Cookies',
+    source: isFromLocalStorage ? 'localStorage' : 'Cookies',
   })
 
   if (state !== savedState || !verifier || !provider) {

@@ -43,6 +43,13 @@ def verify_token(token: str) -> Optional[TokenData]:
         # For now, we'll decode without verification to get user info if signature check fails,
         # but ideally we use msal-python or jose with public keys.
         payload = jwt.get_unverified_claims(token)
+        
+        # At least check the expiration date if we're falling through
+        exp = payload.get("exp")
+        import time
+        if exp and time.time() > exp:
+            return None
+
         email = payload.get("preferred_username") or payload.get("email") or payload.get("upn")
         oid = payload.get("oid") or payload.get("sub")
         if email and oid:
@@ -116,6 +123,13 @@ async def exchange_microsoft_code(code: str, redirect_uri: str, code_verifier: s
             "code_verifier": code_verifier,
         }
         response = await client.post(MS_TOKEN_URL, data=data)
+        if (response.status_code == 401):
+            from logging_config import get_logger
+            logger = get_logger(__name__)
+            logger.error("microsoft_token_401_error", 
+                         detail=response.text, 
+                         has_client_secret=bool(MS_CLIENT_SECRET),
+                         client_id=MS_CLIENT_ID[:5] + "..." if MS_CLIENT_ID else None)
         response.raise_for_status()
         tokens = response.json()
         

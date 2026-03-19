@@ -35,9 +35,8 @@ window.Office.onReady(() => {
       document.cookie = `auth_state=${state}; ${expires}; path=/; SameSite=None; Secure`
       document.cookie = `auth_verifier=${verifier}; ${expires}; path=/; SameSite=None; Secure`
       document.cookie = `auth_provider=microsoft; ${expires}; path=/; SameSite=None; Secure`
-      localStorage.setItem('auth_state', state)
-      localStorage.setItem('auth_verifier', verifier)
-      localStorage.setItem('auth_provider', 'microsoft')
+
+      console.log('Auth Start: PKCE parameters saved to cookies')
     }
 
     if (authUrl) {

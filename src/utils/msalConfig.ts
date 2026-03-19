@@ -3,7 +3,7 @@ import { type Configuration, LogLevel } from '@azure/msal-browser'
 export const msalConfig: Configuration = {
   auth: {
     clientId: import.meta.env.VITE_MS_CLIENT_ID || '87759d28-5815-4503-af54-280d464e9030', // Client ID from manifest.xml
-    authority: 'https://login.microsoftonline.com/consumers',
+    authority: 'https://login.microsoftonline.com/common',
     supportsNestedAppAuth: true,
   },
   cache: {
