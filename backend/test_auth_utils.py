@@ -36,3 +36,11 @@ def test_verify_token_missing_fields():
     token = create_access_token(data)
     token_data = verify_token(token)
     assert token_data is None
+
+def test_microsoft_endpoint_tenant_configuration():
+    from auth_utils import MS_TOKEN_URL, MS_OBO_URL, MS_DISCOVERY_URL, MS_TENANT_ID
+    # Since auth_utils evaluates these at import time, and we've already imported it,
+    # we just check that the current ones match the settings (which default to 'common')
+    assert f"/{MS_TENANT_ID}/" in MS_TOKEN_URL
+    assert f"/{MS_TENANT_ID}/" in MS_OBO_URL
+    assert f"/{MS_TENANT_ID}/" in MS_DISCOVERY_URL

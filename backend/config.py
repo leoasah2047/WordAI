@@ -39,6 +39,7 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_SECRET: Optional[str] = None
     MS_CLIENT_ID: Optional[str] = None
     MS_CLIENT_SECRET: Optional[str] = None
+    MS_TENANT_ID: Optional[str] = "common"
 
     # Logging
     LOG_LEVEL: str = "INFO"

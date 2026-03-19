@@ -35,12 +35,14 @@ GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v3/userinfo"
 
 MS_CLIENT_ID = settings.MS_CLIENT_ID
 MS_CLIENT_SECRET = settings.MS_CLIENT_SECRET
-MS_TOKEN_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
+MS_TENANT_ID = settings.MS_TENANT_ID or "common"
+
+MS_TOKEN_URL = f"https://login.microsoftonline.com/{MS_TENANT_ID}/oauth2/v2.0/token"
 MS_USERINFO_URL = "https://graph.microsoft.com/v1.0/me"
-MS_OBO_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
+MS_OBO_URL = f"https://login.microsoftonline.com/{MS_TENANT_ID}/oauth2/v2.0/token"
 
 # Microsoft Entra ID OpenID Configuration
-MS_DISCOVERY_URL = "https://login.microsoftonline.com/common/v2.0/.well-known/openid-configuration"
+MS_DISCOVERY_URL = f"https://login.microsoftonline.com/{MS_TENANT_ID}/v2.0/.well-known/openid-configuration"
 _ms_jwks = None
 
 def get_ms_jwks():
