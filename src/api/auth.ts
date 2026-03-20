@@ -20,7 +20,7 @@ export const AUTH_CONFIG = {
   microsoft: {
     authUrl: 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize',
     clientId: MS_CLIENT_ID,
-    scope: `openid email profile User.Read api://${MS_CLIENT_ID}/access_as_user`,
+    scope: `openid email profile User.Read api://word-ai-lac.vercel.app/${MS_CLIENT_ID}/access_as_user`,
   },
 }
 

@@ -146,24 +146,35 @@ async def exchange_microsoft_code(code: str, redirect_uri: str, code_verifier: s
             "code_verifier": code_verifier,
         }
         response = await client.post(MS_TOKEN_URL, data=data)
-        if (response.status_code == 401):
+        
+        if response.status_code >= 400:
             from logging_config import get_logger
             logger = get_logger(__name__)
-            error_details = response.json() if response.headers.get("content-type") == "application/json" else {"error_description": response.text}
+            
+            error_details = {}
+            try:
+                error_details = response.json()
+            except Exception:
+                error_details = {"error_description": response.text}
+            
+            error_msg = error_details.get("error_description") or error_details.get("error") or response.text
             
             # Common Azure AD Error: Client Secret vs Secret ID
-            if "AADSTS7000215" in (error_details.get("error_description") or ""):
+            if "AADSTS7000215" in (error_msg or ""):
                 raise HTTPException(
                     status_code=401, 
                     detail="Invalid Microsoft Client Secret. Ensure MS_CLIENT_SECRET is the SECRET VALUE, not the Secret ID GUID."
                 )
-                
-            logger.error("microsoft_token_401_error", 
-                         detail=response.text, 
+            
+            logger.error("microsoft_token_error", 
+                         status_code=response.status_code,
+                         detail=error_msg, 
                          has_client_secret=bool(MS_CLIENT_SECRET),
                          client_id=MS_CLIENT_ID[:5] + "..." if MS_CLIENT_ID else None)
+            
+            # Pass the detailed error message back to the frontend
+            raise HTTPException(status_code=response.status_code, detail=f"Microsoft Error: {error_msg}")
         
-        response.raise_for_status()
         tokens = response.json()
         
         # Get user info from Graph API

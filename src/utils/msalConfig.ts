@@ -38,5 +38,5 @@ export const msalConfig: Configuration = {
 }
 
 export const loginRequest = {
-  scopes: ['openid', 'profile', 'User.Read', `api://${msalConfig.auth.clientId}/access_as_user`],
+  scopes: ['openid', 'profile', 'User.Read', `api://word-ai-lac.vercel.app/${msalConfig.auth.clientId}/access_as_user`],
 }
