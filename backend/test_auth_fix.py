@@ -45,6 +45,8 @@ async def test_exchange_microsoft_code_no_secret():
             assert "client_secret" not in data, "client_secret should NOT be sent for public clients"
             assert data["code"] == "fake-code"
             assert data["code_verifier"] == "fake-verifier"
+            assert "scope" in data
+            assert "openid" in data["scope"]
 
 @pytest.mark.asyncio
 async def test_exchange_microsoft_obo_token_no_secret():

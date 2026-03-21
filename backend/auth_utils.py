@@ -150,6 +150,7 @@ async def exchange_microsoft_code(code: str, redirect_uri: str, code_verifier: s
             "redirect_uri": redirect_uri,
             "grant_type": "authorization_code",
             "code_verifier": code_verifier,
+            "scope": "openid profile email https://graph.microsoft.com/User.Read"
         }
         
         # For public clients (SPA/Office Add-in), sending a client_secret is forbidden (AADSTS90023).
