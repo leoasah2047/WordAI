@@ -105,7 +105,6 @@ async def exchange_microsoft_obo_token(client_assertion: str):
     async with httpx.AsyncClient() as client:
         data = {
             "client_id": MS_CLIENT_ID,
-            "client_secret": MS_CLIENT_SECRET,
             "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
             "assertion": client_assertion,
             "requested_token_use": "on_behalf_of",
@@ -140,7 +139,6 @@ async def exchange_microsoft_code(code: str, redirect_uri: str, code_verifier: s
         data = {
             "code": code,
             "client_id": MS_CLIENT_ID,
-            "client_secret": MS_CLIENT_SECRET,
             "redirect_uri": redirect_uri,
             "grant_type": "authorization_code",
             "code_verifier": code_verifier,
