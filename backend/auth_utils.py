@@ -152,11 +152,8 @@ async def exchange_microsoft_code(code: str, redirect_uri: str, code_verifier: s
             "code_verifier": code_verifier,
         }
         
-        # If client secret is available, include it.
-        # Note: SPA registrations usually don't have secrets, but if this is a Multi-platform registration,
-        # providing it can allow transition to a more secure and reliable exchange flow.
-        if MS_CLIENT_SECRET:
-            data["client_secret"] = MS_CLIENT_SECRET
+        # For public clients (SPA/Office Add-in), sending a client_secret is forbidden (AADSTS90023).
+        # We rely on PKCE (code_verifier) for security.
             
         response = await client.post(MS_TOKEN_URL, data=data, headers=headers)
         
