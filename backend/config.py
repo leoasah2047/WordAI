@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     ALLOWED_ORIGINS: List[str] = ["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:8000", "https://word-ai-lac.vercel.app"]
     
     # Database
-    DATABASE_URL: str = "postgresql://postgres:password@localhost:5432/wordai"
+    DATABASE_URL: str = "postgresql://postgres:mOIqMOMJJZotHIcgbmeVIWiPWhLcQZaf@shinkansen.proxy.rlwy.net:12088/railway"
     
     # Redis for WebSockets & Rate Limiting
     REDIS_URL: str = "redis://localhost:6379"

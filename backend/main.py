@@ -35,7 +35,12 @@ from config import settings
 from structlog.contextvars import bind_contextvars, clear_contextvars
 import httpx
 
-# Create tables handled by Alembic Migrations
+# Initialize Database
+try:
+    Base.metadata.create_all(bind=engine)
+    print("✓ Database tables initialized")
+except Exception as e:
+    print(f"✗ Database initialization failed: {e}")
 
 # Initialize Logging
 configure_logging()
