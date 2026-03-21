@@ -136,6 +136,14 @@ async def exchange_google_code(code: str, redirect_uri: str, code_verifier: str)
 
 async def exchange_microsoft_code(code: str, redirect_uri: str, code_verifier: str):
     async with httpx.AsyncClient() as client:
+        # Construct Origin from redirect_uri (e.g., https://domain.com/auth/callback -> https://domain.com)
+        origin = redirect_uri.split("/auth/callback")[0]
+        
+        headers = {
+            "Origin": origin,
+            "Content-Type": "application/x-www-form-urlencoded"
+        }
+        
         data = {
             "code": code,
             "client_id": MS_CLIENT_ID,
@@ -143,7 +151,14 @@ async def exchange_microsoft_code(code: str, redirect_uri: str, code_verifier: s
             "grant_type": "authorization_code",
             "code_verifier": code_verifier,
         }
-        response = await client.post(MS_TOKEN_URL, data=data)
+        
+        # If client secret is available, include it.
+        # Note: SPA registrations usually don't have secrets, but if this is a Multi-platform registration,
+        # providing it can allow transition to a more secure and reliable exchange flow.
+        if MS_CLIENT_SECRET:
+            data["client_secret"] = MS_CLIENT_SECRET
+            
+        response = await client.post(MS_TOKEN_URL, data=data, headers=headers)
         
         if response.status_code >= 400:
             from logging_config import get_logger
