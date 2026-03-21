@@ -1,6 +1,6 @@
 import pytest
 from datetime import timedelta
-from auth_utils import create_access_token, verify_token, TokenData
+from auth_utils import create_access_token, verify_token, TokenData, SECRET_KEY
 from jose import jwt
 
 def test_create_access_token():
@@ -8,15 +8,24 @@ def test_create_access_token():
     token = create_access_token(data)
     assert token is not None
     assert isinstance(token, str)
+    # Check that we can decode it and sub is a string
+    decoded = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+    assert decoded["sub"] == "1"
 
 def test_verify_token_success():
-    # The verify_token looks for "sub" and "email"
-    data = {"sub": "1", "email": "test@example.com"}
-    token = create_access_token(data)
-    token_data = verify_token(token)
-    assert token_data is not None
-    assert str(token_data.user_id) == "1"
-    assert token_data.email == "test@example.com"
+    # Test with string ID
+    data_str = {"sub": "123", "email": "test@example.com"}
+    token_str = create_access_token(data_str)
+    token_data_str = verify_token(token_str)
+    assert token_data_str is not None
+    assert token_data_str.user_id == 123
+    
+    # Test with integer ID (this previously failed)
+    data_int = {"sub": 456, "email": "test@example.com"}
+    token_int = create_access_token(data_int)
+    token_data_int = verify_token(token_int)
+    assert token_data_int is not None
+    assert token_data_int.user_id == 456
 
 def test_verify_token_expired():
     data = {"sub": 1, "email": "test@example.com"}
